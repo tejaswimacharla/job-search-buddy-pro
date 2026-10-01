@@ -1,5 +1,5 @@
 [project]
-name = "job-search-buddy-ds"
+name = "job-search-buddy-pro"
 version = "0.1.0"
 description = "Scrape SWE/SRE/AI and data science / data engineering jobs from public ATS boards, rank them against the Resume Tailoring Assistant knowledge base, tailor, and assist applying."
 requires-python = ">=3.11"

@@ -1,4 +1,4 @@
-# Job Search Buddy (DS)
+# Job Search Buddy Pro
 
 A fork of [job-search-buddy](https://github.com/tejaswimacharla/job-search-buddy) that adds a data
 science / analytics / data engineering search track alongside the original SWE one.
