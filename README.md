@@ -1,6 +1,10 @@
-# Job Search Buddy
+# Job Search Buddy (DS)
 
-Finds SDE / SWE / SRE / AI engineering roles, ranks them against your **Resume Tailoring
+A fork of [job-search-buddy](https://github.com/tejaswimacharla/job-search-buddy) that adds a data
+science / analytics / data engineering search track alongside the original SWE one.
+
+Finds SDE / SWE / SRE / AI engineering roles **and data science / applied science / analytics /
+data engineering roles**, ranks them against your **Resume Tailoring
 Assistant** (RTA) knowledge base the way Jobright's recommendations do, hands the good ones
 to the RTA to build a tailored resume, then opens the application with the standard fields
 pre-filled so you can review and submit.
@@ -22,6 +26,45 @@ uv sync                          # once
 
 Optional: `alias jsb="$PWD/jsb.sh"` in your `~/.zshrc`.
 
+## Search tracks (SWE + Data Science)
+
+Roles are searched in **tracks**, set in `config/search.yaml` under `tracks` and switched on with
+`active_tracks: [swe, ds]`. Each scraped title goes to the first active track that claims it.
+
+| | `swe` | `ds` |
+|---|---|---|
+| Titles | SWE, SDE, backend, platform, SRE, ML/AI engineer, MTS, DevOps | Data scientist, applied / ML / decision / product scientist, product & growth analytics, experimentation, ranking & recommendations, analytics engineer, **data engineer / data engineering, data platform / infrastructure / pipeline / warehouse / lakehouse engineer, big data, ETL, DataOps** |
+| Excluded | anything with "scientist", and data platform / infrastructure / pipeline engineer titles (go to `ds`) | research scientist, wet-lab/clinical sciences, BI/reporting analyst, actuarial, solutions specialists / consultants |
+| Role types | SRE, AI/agent infra, backend, full stack, DevOps, forward deployed | data engineering, analytics engineering, ML / applied science, experimentation / causal, product analytics |
+| Extra skills scored | — | statistics, A/B testing, causal inference, Bayesian, forecasting, ML modeling, scikit-learn, GBMs, deep learning, NLP, ranking/recsys, pandas, R, SAS/Stata, product metrics, BI tools, Snowflake, optimization, data viz; for data engineering: lakehouse / table formats, orchestration, data modeling, CDC / ingestion, data quality, stream processing |
+| Claude's rubric | senior SWE recruiter | DS recruiter: decides whether the role is ML/applied, product analytics, data engineering or analytics engineering, and weighs evidence for that kind of role |
+| Judged as | Senior Software Engineer | Senior Data Scientist; Senior Data Engineer / Senior Analytics Engineer for those role types (`family_targets`) |
+| Apply criteria | global `apply_criteria` | global, overridden by `tracks.ds.apply_criteria` (default: pay >$180K, apply 72%+, stretch 62%+) |
+
+A generic SWE title on a data team ("Senior Software Engineer, Data Platform") stays in `swe`;
+only titles that are themselves data-engineering titles move to `ds`.
+
+The DS skills are only scored on DS-track jobs, so SWE scores are exactly what they were
+before tracks existed. The track is also passed to `tailor`, so the RTA leads with modeling,
+experimentation and analysis evidence on a DS resume, and with pipelines, data volumes and
+the storage/processing stack on a data engineering one (still only what the knowledge base supports).
+
+```bash
+./jsb.sh list --track ds              # DS roles meeting the DS criteria
+./jsb.sh rerank --track ds --top 15   # Claude re-ranks DS roles with the DS rubric
+./jsb.sh daily --rerank 25 --track ds # scrape everything, re-rank only DS
+```
+
+The dashboard has a **Track** filter; the criteria line and KPIs follow the selected track.
+To search only data science, set `active_tracks: [ds]`. To add a track (say `mle` or `quant`),
+copy a block under `tracks`; role families and the Claude rubric fall back to the SWE ones
+unless you add entries to `ROLE_FAMILIES` in `jsb/match.py` and `GUIDANCE` in `jsb/llm.py`.
+
+Matching reads the same RTA knowledge base for every track. If your evidence is mostly
+engineering, expect DS rule scores to run high and Claude's DS scores to be blunt about
+missing modeling or statistics work. Adding that evidence to the RTA skill matrix and
+achievement bank is what moves them.
+
 ## Schedule
 
 A Claude desktop scheduled task, **job-search-daily**, runs `./jsb.sh daily --rerank 25 --no-open`
@@ -36,8 +79,8 @@ reading `~/Documents`, where both projects live.)
 |---|---|
 | `scrape [--source greenhouse …]` | Pull every posting from the boards in `config/search.yaml`, keep roles that pass title/location/age filters, score them, and mark removed postings closed |
 | `score` | Re-score everything, e.g. after you update the RTA knowledge base |
-| `rerank --top N [--model sonnet]` | Claude reads the full JD against your evidence and returns score, verdict, gaps and dealbreakers. Uses your local `claude` login |
-| `list [--min 70] [--status tailored]` | Ranked list (AI score is used when present) |
+| `rerank --top N [--model sonnet] [--track ds]` | Claude reads the full JD against your evidence and returns score, verdict, gaps and dealbreakers. Uses your local `claude` login |
+| `list [--min 70] [--status tailored] [--track ds]` | Ranked list (AI score is used when present) |
 | `show <#> [--full]` | Why it matched: evidenced skills, exposure-only skills, missing skills, flags |
 | `add <url>` | Import one job from a Greenhouse/Lever/Ashby/Jobright/LinkedIn/company URL |
 | `tailor <#>` | Write the JD into `resume-tailoring-assistant/job_descriptions/incoming/` and run the RTA skills headlessly |
@@ -56,7 +99,8 @@ reading `~/Documents`, where both projects live.)
 - **BambooHR, Workable, Rippling**: their public careers feeds. These are common at smaller
   startups; descriptions are fetched only for roles that pass the title and location filters.
 - **Workday** (NVIDIA, Salesforce, Adobe, Cisco, Intel, PayPal, Capital One, and others):
-  the careers site's own search endpoint, queried for SWE/SRE/ML titles.
+  the careers site's own search endpoint, queried with every active track's `workday_queries`
+  (SWE/SRE/ML engineer, plus data scientist / applied scientist / analytics engineer).
 - **LinkedIn and Jobright**: `add <url>` for individual postings only. Bulk-crawling either
   one needs your logged-in session and breaks their terms. That risks getting your LinkedIn
   account restricted, which is the last thing you want mid-search. Keep using Jobright's feed
@@ -174,7 +218,7 @@ Nothing about you is stored here. Every run reads the RTA directly:
 (years and current role), `knowledge_base/skill_evidence/skill_evidence_matrix.md` (skills,
 depth, `resume_eligible`), and `knowledge_base/role_bundles/`.
 
-1. **Hard filters**: title include/exclude regexes, US or remote-US location, posted within
+1. **Hard filters**: title include/exclude regexes (per track, plus a global exclude list), US or remote-US location, posted within
    `max_age_days`.
 2. **Rule score (0-100)**:
    - Skill fit (55%): JD skills are weighted by section (required > general > preferred) and
@@ -220,7 +264,7 @@ Workday requires a separate candidate account per company, so it's mostly manual
 ## Files
 
 ```
-config/search.yaml     roles, locations, filters, company boards
+config/search.yaml     tracks (swe, ds), locations, filters, company boards
 jsb/sources/           greenhouse, ashby, lever, workday, smartrecruiters, single-URL import
 jsb/profile.py         reads the RTA knowledge base
 jsb/match.py           filters + scoring
@@ -231,4 +275,5 @@ jsb/tracker.py         writes RTA application_tracker.md rows
 data/jobs.db           SQLite store (git-ignored)
 reports/matches.html   dashboard (git-ignored)
 tests/test_fill.py     fills a local fixture form with dummy data
+tests/test_tracks.py   title routing and DS scoring with a synthetic profile
 ```

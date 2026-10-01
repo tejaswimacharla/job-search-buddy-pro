@@ -18,6 +18,10 @@ TAILOR_PROMPT = """You are running non-interactively from job-search-buddy. Read
 config/truth_policy.md first; they override everything here.
 
 Job description file: {jd_path}
+Target role type: {target}. Lead with the evidence that matters for this kind of role
+(for a data science role: modeling, experimentation, analysis and measurable outcomes before
+infrastructure detail; for a data engineering role: pipelines, data volumes, latency, data
+quality and the storage/processing stack), but only claim what the knowledge base evidences.
 
 1. Follow skills/analyze_jd.md on that file.
 2. If config/tailoring_preferences.md says to stop and ask (critical unclear requirement, or
@@ -54,10 +58,12 @@ def write_jd(job: Job, rta: Path) -> Path:
     return path
 
 
-def run_tailoring(job: Job, rta: Path, model: str | None = None, stream=True) -> tuple[str, str]:
+def run_tailoring(job: Job, rta: Path, model: str | None = None, stream=True,
+                  target: str | None = None) -> tuple[str, str]:
     """Returns (status, path) where status is 'ready', 'needs_input' or 'error'."""
     jd_path = write_jd(job, rta)
     prompt = TAILOR_PROMPT.format(jd_path=jd_path.relative_to(rta), slug=slug_for(job),
+                                  target=target or "Senior Software Engineer",
                                   today=date.today().isoformat())
     cmd = ["claude", "-p", "--permission-mode", "acceptEdits",
            "--allowedTools", "Read,Write,Edit,Glob,Grep,Bash(pdflatex:*),Bash(rm:*),Bash(ls:*),Bash(pdfinfo:*)"]

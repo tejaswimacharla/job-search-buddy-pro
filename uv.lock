@@ -421,7 +421,7 @@ wheels = [
 ]
 
 [[package]]
-name = "job-search-buddy"
+name = "job-search-buddy-ds"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

@@ -9,7 +9,7 @@ import textwrap
 from datetime import date
 
 from . import blocklist, db, layoffs, report
-from .config import load_config
+from .config import load_config, track_criteria, track_target
 from .criteria import check_row
 from .match import Matcher, label
 from .profile import load_profile
@@ -121,14 +121,27 @@ def _score_all(conn, matcher, only_unscored=False):
 
 
 def cmd_score(args):
-    _, profile, matcher, conn = _ctx()
+    cfg, profile, matcher, conn = _ctx()
     print(f"Candidate: {profile.identity.get('name')} · {profile.years_experience} yrs · "
-          f"{sum(r.eligible for r in profile.skill_rows)} evidence-backed skills")
+          f"{sum(r.eligible for r in profile.skill_rows)} evidence-backed skills · "
+          f"tracks: {', '.join(cfg['active_tracks'])}")
     _score_all(conn, matcher)
 
 
+def _track(row) -> str:
+    return json.loads(row["score_detail"] or "{}").get("track") or "swe"
+
+
+def _family(row) -> str:
+    return json.loads(row["score_detail"] or "{}").get("family") or ""
+
+
+def _crit(cfg, row) -> dict:
+    return track_criteria(cfg, _track(row))
+
+
 def _fails(cfg, row, ignore_match: bool = False) -> list[str]:
-    return check_row(cfg["apply_criteria"], row, json.loads(row["score_detail"] or "{}"), ignore_match=ignore_match)
+    return check_row(_crit(cfg, row), row, json.loads(row["score_detail"] or "{}"), ignore_match=ignore_match)
 
 
 def _ensure_rerank(cfg, profile, conn, row):
@@ -137,7 +150,7 @@ def _ensure_rerank(cfg, profile, conn, row):
         return row
     from .llm import rerank
     print(f"Getting Claude's match score for {row['company']} · {row['title']} (~20s)...")
-    res = rerank(db.row_to_job(row), profile)
+    res = rerank(db.row_to_job(row), profile, track=_track(row), family=_family(row))
     conn.execute("UPDATE jobs SET llm_score=?, llm_detail=? WHERE id=?", (res["score"], json.dumps(res), row["id"]))
     conn.commit()
     print(f"  Claude: {res['verdict']} ({res['score']}) — {res['why']}")
@@ -152,8 +165,8 @@ def _blocked_exit(row) -> None:
                  f"Run `jsb unblock \"{e['company']}\"` if that's changed.")
 
 
-def _criteria_line(cfg) -> str:
-    c = cfg["apply_criteria"]
+def _criteria_line(cfg, track: str | None = None) -> str:
+    c = track_criteria(cfg, track)
     line = (f"posted ≤{c['max_posted_hours']}h · top of pay >${c['min_base_pay'] // 1000}K · "
             f"asks {c['years_min']}-{c['years_max']} yrs")
     if c.get("min_match"):
@@ -162,6 +175,11 @@ def _criteria_line(cfg) -> str:
         line += f" · {lim['company']} >{lim['above_match']}%"
     if c.get("exclude_recent_layoffs_months"):
         line += f" · no layoffs in {c['exclude_recent_layoffs_months']} mo"
+    if track is None:
+        over = [f"{t}: " + ", ".join(f"{k}={v}" for k, v in cfg["tracks"][t]["apply_criteria"].items())
+                for t in cfg["active_tracks"] if cfg["tracks"][t].get("apply_criteria")]
+        if over:
+            line += " (overrides — " + "; ".join(over) + ")"
     return line
 
 
@@ -190,15 +208,17 @@ def cmd_rerank(args):
                            AND score >= ? {cond} ORDER BY score DESC""", (cfg["min_score"],)).fetchall()
     blocked = blocklist.load()
     rows = [r for r in rows if not blocklist.match(r["company"], blocked)]
+    if args.track:
+        rows = [r for r in rows if _track(r) == args.track]
     if not args.all:
         # The match gate depends on this re-rank, so don't apply it when choosing candidates.
         rows = [r for r in rows if not _fails(cfg, r, ignore_match=True)]
     rows = rows[:args.top]
     print(f"Re-ranking {len(rows)} jobs with Claude ({args.model})"
-          + ("" if args.all else f", apply criteria only: {_criteria_line(cfg)}") + "...")
+          + ("" if args.all else f", apply criteria only: {_criteria_line(cfg, args.track)}") + "...")
 
     def work(row):
-        return row, rerank(db.row_to_job(row), profile, args.model)
+        return row, rerank(db.row_to_job(row), profile, args.model, track=_track(row), family=_family(row))
 
     with cf.ThreadPoolExecutor(max(1, args.parallel // 2)) as ex:   # each job already runs its scorings in parallel
         for fut in cf.as_completed([ex.submit(work, r) for r in rows]):
@@ -210,7 +230,8 @@ def cmd_rerank(args):
             conn.execute("UPDATE jobs SET llm_score=?, llm_detail=? WHERE id=?", (res["score"], json.dumps(res), row["id"]))
             conn.commit()
             spread = "/".join(map(str, res.get("runs", [])))
-            print(f"  #{row['rowid']:<5} {res['score']:>3} {res['verdict']:<6} ({spread:<8}) {row['company']} · {row['title']}")
+            print(f"  #{row['rowid']:<5} {res['score']:>3} {res['verdict']:<6} ({spread:<8}) {_track(row):<3} "
+                  f"{row['company']} · {row['title']}")
 
 
 # ---------------------------------------------------------------- browse
@@ -231,28 +252,36 @@ def cmd_list(args):
     cfg, _, _, conn = _ctx()
     rows = _ranked(conn, args.min if args.min is not None else cfg["min_score"], args.status, 10_000)
     blocked = blocklist.load()
+    if args.track:
+        rows = [r for r in rows if _track(r) == args.track]
     if not args.all:
         rows = [r for r in rows if not _fails(cfg, r) and not blocklist.match(r["company"], blocked)]
-        print(f"Meeting apply criteria ({_criteria_line(cfg)}). Use --all to see everything.\n")
+        print(f"Meeting apply criteria ({_criteria_line(cfg, args.track)}). Use --all to see everything.\n")
     from .criteria import match_tier
-    crit = cfg["apply_criteria"]
+    tier = lambda r: match_tier(_crit(cfg, r), r)
     if not args.all:   # Apply tier first, then Stretch; each keeps its match order
-        rows = sorted(rows, key=lambda r: match_tier(crit, r) != "apply")
+        rows = sorted(rows, key=lambda r: tier(r) != "apply")
     rows = rows[:args.limit]
     shown_tier = None
+    multi = len(cfg["active_tracks"]) > 1 and not args.track
     for r in rows:
-        det = json.loads(r["score_detail"] or "{}")
-        if not args.all and match_tier(crit, r) != shown_tier:
-            shown_tier = match_tier(crit, r)
-            print({"apply": f"APPLY ({crit['min_match']}%+)",
-                   "stretch": f"\nSTRETCH ({crit.get('stretch_match')}-{crit['min_match'] - 1}%): one clear gap, related experience"}[shown_tier])
+        if not args.all and tier(r) != shown_tier:
+            shown_tier = tier(r)
+            if multi:   # each track can set its own bars
+                bars = {"apply": "match ≥ each track's min_match", "stretch": "each track's stretch_match to min_match"}
+            else:
+                c = track_criteria(cfg, args.track or cfg["active_tracks"][0])
+                bars = {"apply": f"{c['min_match']}%+", "stretch": f"{c.get('stretch_match')}-{c['min_match'] - 1}%"}
+            print({"apply": f"APPLY ({bars['apply']})",
+                   "stretch": f"\nSTRETCH ({bars['stretch']}): one clear gap, related experience"}[shown_tier])
         ai = f" AI {int(r['llm_score'])}" if r["llm_score"] is not None else ""
         if args.all and blocklist.match(r["company"], blocked):
             ai += " [BLOCKED]"
-        print(f"#{r['rowid']:<5} {int(r['score']):>3}{ai:<7} {label(r['rank']):<6} {r['status']:<11} "
-              f"{r['company'][:18]:<18} {r['title'][:52]:<52} {_age(r['posted_at']):>4} {_pay(r):>11}")
+        trk = f"{_track(r):<4}" if multi else ""
+        print(f"#{r['rowid']:<5} {trk}{int(r['score']):>3}{ai:<7} {label(r['rank']):<6} {r['status']:<11} "
+              f"{r['company'][:18]:<18} {r['title'][:50]:<50} {_age(r['posted_at']):>4} {_pay(r):>11}")
     if not args.all:
-        n_apply = sum(1 for r in rows if match_tier(crit, r) == "apply")
+        n_apply = sum(1 for r in rows if tier(r) == "apply")
         print(f"\n{n_apply} apply + {len(rows) - n_apply} stretch. `jsb show <#>` for details, `jsb report` for the dashboard.")
     else:
         print(f"\n{len(rows)} jobs. `jsb show <#>` for details, `jsb report` for the dashboard.")
@@ -278,6 +307,8 @@ def cmd_show(args):
     r = conn.execute("SELECT rowid, * FROM jobs WHERE id=?", (r["id"],)).fetchone()
     det = json.loads(r["score_detail"] or "{}")
     print(f"#{r['rowid']} {r['title']} — {r['company']}\n{r['location']} · posted {r['posted_at']} · {r['compensation']}")
+    print(f"Track: {det.get('track') or 'swe'} · {det.get('family', '')} · judged as "
+          f"{track_target(load_config(), det.get('track') or 'swe', det.get('family'))}")
     print(f"{r['url']}\nStatus: {r['status']}   Score: {r['score']} ({label(r['score'] or 0)})  {det.get('components')}")
     print(f"Matched: {', '.join(det.get('matched', []))}\nExposure only: {', '.join(det.get('partial', []))}")
     print(f"No evidence: {', '.join(det.get('missing', []))}\nFlags: {', '.join(det.get('flags', [])) or 'none'}")
@@ -286,13 +317,13 @@ def cmd_show(args):
     print(f"Pay: {_pay(r)} · posted {_age(r['posted_at'])} ago · asks {det.get('required_years') or '?'}"
           f"{'-' + str(det['years_max']) if det.get('years_max') and det.get('years_max') != det.get('required_years') else ''} yrs")
     from .criteria import match_tier as _tier
-    print("Apply criteria: " + (f"✓ meets all ({_tier(cfg['apply_criteria'], r)} tier)" if not fails else "✗ " + ", ".join(fails)))
+    print("Apply criteria: " + (f"✓ meets all ({_tier(_crit(cfg, r), r)} tier)" if not fails else "✗ " + ", ".join(fails)))
     b = blocklist.match(r["company"])
     if b:
         print(f"BLOCKED company: {blocklist.describe(b)}")
     from .criteria import applications_used, company_limit, match_score
     print(f"Match used for the gate: {match_score(r):.0f}%" + ("" if r["llm_score"] is not None else " (rule score; Claude re-rank not run yet)"))
-    lim = company_limit(cfg["apply_criteria"], r["company"])
+    lim = company_limit(_crit(cfg, r), r["company"])
     if lim:
         used = applications_used(lim)
         print(f"{lim['company']} cap: {len(used)}/{lim['max_applications']} applications used in the last "
@@ -318,13 +349,12 @@ def cmd_add(args):
     m = matcher.score(job)
     if not m.passed:
         print(f"Note: this job fails the '{m.reject_reason}' filter; scoring it anyway since you added it.")
-        cfg2 = dict(cfg, title_include=[".*"], title_exclude=[], max_age_days=10_000)
-        m = Matcher(cfg2, profile).score(job)
+        m = matcher.score(job, force=True)
     conn.execute("UPDATE jobs SET score=?, score_detail=?, status='shortlisted' WHERE id=?",
                  (m.score, json.dumps(m.as_dict()), job.id))
     conn.commit()
     rowid = conn.execute("SELECT rowid FROM jobs WHERE id=?", (job.id,)).fetchone()[0]
-    print(f"Added #{rowid}: {job.title} — {job.company} · score {m.score} ({label(m.score)})")
+    print(f"Added #{rowid}: {job.title} — {job.company} · {m.track} track · score {m.score} ({label(m.score)})")
     if job.ats in ("jobright", "linkedin") and job.apply_url == job.url:
         print("  This came from an aggregator; `jsb apply` will open that page and you'll click through to the company form.")
 
@@ -356,7 +386,8 @@ def cmd_tailor(args):
     if len(job.description) < 300:
         sys.exit("This posting has almost no description text; add it with `jsb add <url>` from the company page first.")
     print(f"Tailoring for {job.company} · {job.title} in {cfg['rta_path']} (this takes a few minutes)...\n")
-    status, path = run_tailoring(job, cfg["rta_path"], model=args.model, stream=not args.quiet)
+    target = track_target(cfg, _track(r), _family(r))
+    status, path = run_tailoring(job, cfg["rta_path"], model=args.model, stream=not args.quiet, target=target)
     if status == "ready":
         db.set_status(conn, r["id"], "tailored", rta_output=path)
         print(f"\nResume package ready: {cfg['rta_path'] / path}\nNext: review it, then `jsb apply {args.id}`.")
@@ -464,13 +495,13 @@ def _print_layoffs(cfg, company: str) -> None:
 
 def _research_targets(cfg, conn) -> list[tuple[str, str]]:
     """Companies with at least one job passing every *other* criterion, best score first."""
-    crit = dict(cfg["apply_criteria"], exclude_recent_layoffs_months=0)
     blocked = blocklist.load()
     seen, out = set(), []
     for r in _ranked(conn, cfg["min_score"], None, 10_000):
         n = layoffs.norm(r["company"])
         if n in seen or blocklist.match(r["company"], blocked):
             continue
+        crit = dict(_crit(cfg, r), exclude_recent_layoffs_months=0)
         if not check_row(crit, r, json.loads(r["score_detail"] or "{}"), ignore_match=True):
             seen.add(n)
             out.append((r["company"], r["title"]))
@@ -591,7 +622,8 @@ def cmd_daily(args):
         cmd_layoffs(argparse.Namespace(action="research", company=None, force=False,
                                        limit=cfg.get("layoffs", {}).get("research_per_run", 25)))
     if args.rerank:
-        cmd_rerank(argparse.Namespace(top=args.rerank, model=args.model, parallel=4, force=False, all=False))
+        cmd_rerank(argparse.Namespace(top=args.rerank, model=args.model, parallel=4, force=False, all=False,
+                                      track=args.track))
     cmd_report(argparse.Namespace(no_open=args.no_open))
 
 
@@ -611,6 +643,7 @@ def main(argv=None):
     s.add_argument("--parallel", type=int, default=4)
     s.add_argument("--force", action="store_true", help="Re-rank jobs that already have an AI score")
     s.add_argument("--all", action="store_true", help="Include jobs outside the apply criteria")
+    s.add_argument("--track", help="Only this track, e.g. swe or ds")
     s.set_defaults(fn=cmd_rerank)
 
     s = sub.add_parser("list", help="List ranked matches")
@@ -618,6 +651,7 @@ def main(argv=None):
     s.add_argument("--status", choices=db.STATUSES)
     s.add_argument("--limit", type=int, default=40)
     s.add_argument("--all", action="store_true", help="Include jobs outside the apply criteria")
+    s.add_argument("--track", help="Only this track, e.g. swe or ds")
     s.set_defaults(fn=cmd_list)
 
     s = sub.add_parser("show", help="Show one job's match breakdown")
@@ -686,6 +720,7 @@ def main(argv=None):
     s.add_argument("--model", default="sonnet")
     s.add_argument("--no-open", action="store_true")
     s.add_argument("--no-research", action="store_true", help="Skip the layoff web research step")
+    s.add_argument("--track", help="Only re-rank this track's jobs (scrape and report cover all active tracks)")
     s.set_defaults(fn=cmd_daily)
 
     args = p.parse_args(argv)

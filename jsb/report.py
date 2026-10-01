@@ -9,25 +9,28 @@ import json
 from datetime import date
 
 from . import blocklist, layoffs, pay
-from .config import REPORTS_DIR, load_config
+from .config import REPORTS_DIR, load_config, track_criteria
 from .criteria import applications_used, check_row, hours_since, match_tier
 
 
 def _data(conn) -> dict:
-    crit = load_config()["apply_criteria"]
+    cfg = load_config()
+    crit = cfg["apply_criteria"]
     blocked = blocklist.load()
     lay = layoffs.index(crit.get("exclude_recent_layoffs_months") or 6)
     jobs = []
     for r in conn.execute("""SELECT rowid, * FROM jobs WHERE closed=0 AND score > 0 AND status != 'skipped'
                              ORDER BY COALESCE(llm_score, score) DESC""").fetchall():
         det = json.loads(r["score_detail"] or "{}")
+        track = det.get("track") or "swe"
+        tcrit = track_criteria(cfg, track)
         llm = json.loads(r["llm_detail"] or "null") or {}
         p = pay.parse(r["compensation"], r["description"])
         b = blocklist.match(r["company"], blocked)
         jobs.append({
             "blocked": blocklist.describe(b) if b else None,
             "id": r["rowid"], "company": r["company"], "title": r["title"], "location": r["location"] or "",
-            "loc": det.get("location_class", "unknown"), "family": det.get("family", "Other"),
+            "loc": det.get("location_class", "unknown"), "family": det.get("family", "Other"), "track": track,
             "score": round(r["score"]), "ai": r["llm_score"], "verdict": llm.get("verdict"),
             "why": llm.get("why"), "runs": llm.get("runs"), "gaps": llm.get("gaps", []), "dealbreakers": llm.get("dealbreakers", []),
             "payLo": p[0] if p else None, "payHi": p[1] if p else None,
@@ -35,7 +38,7 @@ def _data(conn) -> dict:
             "ats": r["ats"], "url": r["url"], "apply": r["apply_url"] or r["url"],
             "matched": det.get("matched", []), "partial": det.get("partial", []), "missing": det.get("missing", []),
             "flags": det.get("flags", []), "years": det.get("required_years"),
-            "fails": check_row(crit, r, det), "hours": hours_since(r["posted_at"]), "tier": match_tier(crit, r),
+            "fails": check_row(tcrit, r, det), "hours": hours_since(r["posted_at"]), "tier": match_tier(tcrit, r),
             "layoffs": [{"date": e["date"], "n": e.get("employees"), "src": e["source"], "url": e.get("url"),
                          "where": (e.get("where") or "")[:90], "ok": e["confirmed"]} for e in lay.lookup(r["company"])[:4]],
             "layoffChecked": layoffs.norm(r["company"]) in lay.researched,
@@ -44,8 +47,10 @@ def _data(conn) -> dict:
     status_all = dict(conn.execute("SELECT status, COUNT(*) FROM jobs GROUP BY status").fetchall())
     caps = [{"company": l["company"], "used": len(applications_used(l)), "max": l["max_applications"],
              "window": l["window_days"], "above": l["above_match"]} for l in crit.get("company_limits") or []]
+    tracks = {t: cfg["tracks"][t]["label"] for t in cfg["active_tracks"]}
     return {"jobs": jobs, "runs": runs, "statusAll": status_all, "today": date.today().isoformat(), "crit": crit,
-            "caps": caps}
+            "caps": caps, "tracks": tracks, "critByTrack": {t: track_criteria(cfg, t) for t in tracks},
+            "overrides": {t: cfg["tracks"][t].get("apply_criteria") or {} for t in tracks}}
 
 
 CSS = r"""
@@ -118,13 +123,16 @@ const ageDays = d => d ? Math.round((new Date(D.today) - new Date(d.slice(0,10))
 
 // ---------- filters
 const fams = [...new Set(D.jobs.map(j => j.family))].sort();
+$('#trk').innerHTML += Object.entries(D.tracks).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('');
+if (Object.keys(D.tracks).length < 2) $('#trk').style.display = 'none';
 $('#fam').innerHTML += fams.map(f => `<option>${esc(f)}</option>`).join('');
 $('#locf').innerHTML += Object.entries(LOC).map(([k,v]) => `<option value="${k}">${v}</option>`).join('');
 let sortKey = 'match', sortDir = -1, shown = 60, open = new Set();
 function filtered() {
   const critOnly = $('#crit').value !== 'no', applyOnly = $('#crit').value === 'apply';
+  const trk = $('#trk').value;
   const q = $('#q').value.toLowerCase(), fam = $('#fam').value, loc = $('#locf').value, min = +$('#min').value, st = $('#st').value;
-  return D.jobs.filter(j => (!applyOnly || j.tier === 'apply') && (!critOnly || (!j.fails.length && !j.blocked && (j.status !== 'submitted' || st === 'submitted'))) && match(j) >= min && (!fam || j.family === fam) && (!loc || j.loc === loc) && (!st || j.status === st) &&
+  return D.jobs.filter(j => (!applyOnly || j.tier === 'apply') && (!critOnly || (!j.fails.length && !j.blocked && (j.status !== 'submitted' || st === 'submitted'))) && match(j) >= min && (!trk || j.track === trk) && (!fam || j.family === fam) && (!loc || j.loc === loc) && (!st || j.status === st) &&
     (!q || (j.company + ' ' + j.title + ' ' + j.location).toLowerCase().includes(q)));
 }
 
@@ -181,11 +189,14 @@ function render() {
   const J = filtered(), last = D.runs[0] || {};
   const strong = J.filter(j => match(j) >= 82).length, paid = J.filter(j => j.payHi);
   const newToday = J.filter(j => j.firstSeen === D.today).length;
-  const C = D.crit, eligJ = D.jobs.filter(j => !j.fails.length && !j.blocked && j.status !== 'submitted'),
-    elig = eligJ.length, nApply = eligJ.filter(j => j.tier === 'apply').length, nb = D.jobs.filter(j => j.blocked).length;
+  const trk = $('#trk').value, C = D.critByTrack[trk] || D.crit;
+  const eligJ = D.jobs.filter(j => !j.fails.length && !j.blocked && j.status !== 'submitted' && (!trk || j.track === trk)),
+    elig = eligJ.length, nApply = eligJ.filter(j => j.tier === 'apply').length, nb = D.jobs.filter(j => j.blocked && (!trk || j.track === trk)).length;
   $('#critline').textContent = `Criteria: posted in the last ${C.max_posted_hours}h · top of base pay above $${C.min_base_pay/1000}K · asks ${C.years_min}–${C.years_max} years`
     + (C.exclude_citizenship_required ? ' · no citizenship/clearance' : '') + (C.exclude_recent_layoffs_months ? ` · no layoffs in ${C.exclude_recent_layoffs_months} months` : '')
-    + (C.min_match ? ` · match ${C.min_match}%+ (stretch ${C.stretch_match}%+)` : '') + D.caps.map(c => ` · ${c.company} above ${c.above}%`).join('');
+    + (C.min_match ? ` · match ${C.min_match}%+ (stretch ${C.stretch_match}%+)` : '') + D.caps.map(c => ` · ${c.company} above ${c.above}%`).join('')
+    + (trk ? '' : Object.entries(D.overrides).filter(([, o]) => Object.keys(o).length)
+        .map(([t, o]) => ` · ${t.toUpperCase()} track: ` + Object.entries(o).map(([k, v]) => `${k.replace(/_/g, ' ')} ${v}`).join(', ')).join(''));
   const kpis = [
     [`${nApply} + ${elig - nApply}`, 'Apply + stretch', `meet every rule · apply ${C.min_match}%+, stretch ${C.stretch_match}–${C.min_match - 1}%${nb ? ` · ${nb} at blocked companies excluded` : ''}`],
     [new Set(D.jobs.filter(j => j.layoffs.some(e => e.ok)).map(j => j.company)).size, 'Companies with recent layoffs',
@@ -268,7 +279,7 @@ $('#tbl').addEventListener('click', e => {
   if (tr && !e.target.closest('a')) { const id = +tr.dataset.id; open.has(id) ? open.delete(id) : open.add(id); renderTable(filtered()); }
 });
 $('#more').onclick = () => { shown += 60; renderTable(filtered()); };
-['#q', '#crit', '#fam', '#locf', '#min', '#st'].forEach(s => $(s).addEventListener('input', () => { shown = 60; render(); }));
+['#q', '#crit', '#trk', '#fam', '#locf', '#min', '#st'].forEach(s => $(s).addEventListener('input', () => { shown = 60; render(); }));
 let rt; addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(render, 150); });
 render();
 """
@@ -280,11 +291,12 @@ def build(conn) -> str:
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Job Search Dashboard</title><style>{CSS}</style></head>
 <body><div class="wrap">
 <h1>Job search dashboard</h1>
-<div class="sub">Roles ranked against your Resume Tailoring Assistant knowledge base · generated {date.today().isoformat()}</div>
+<div class="sub">Roles ranked against your Resume Tailoring Assistant knowledge base, per search track · generated {date.today().isoformat()}</div>
 <div class="cap" id="critline" style="margin-top:6px"></div>
 <div class="filters">
  <select id="crit"><option value="yes">Meets criteria (apply + stretch)</option><option value="apply">Apply tier only</option><option value="no">All scored jobs</option></select>
  <input id="q" placeholder="Search company, role, location">
+ <select id="trk"><option value="">All tracks</option></select>
  <select id="fam"><option value="">All role types</option></select>
  <select id="locf"><option value="">All locations</option></select>
  <select id="st"><option value="">Any status</option><option>new</option><option>shortlisted</option><option>tailored</option><option>prefilled</option><option>submitted</option></select>

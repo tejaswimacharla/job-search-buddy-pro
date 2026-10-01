@@ -14,30 +14,86 @@ rerank_runs: 2
 # Minimum rule-based score (0-100) to show in `jsb list` / the report.
 min_score: 55
 
-# --- Role filters ---------------------------------------------------------------
-# A title must match at least one include pattern and no exclude pattern.
-# Patterns are case-insensitive regexes.
-title_include:
-  - '\bsoftware (development )?engineer'
-  - '\bsde\b'
-  - '\bswe\b'
-  - '\bbackend\b'
-  - '\bback[- ]end\b'
-  - '\bplatform engineer'
-  - '\binfrastructure engineer'
-  - '\bsite reliability'
-  - '\bsre\b'
-  - '\breliability engineer'
-  - '\bproduction engineer'
-  - '\bdistributed systems'
-  - '\b(ai|ml|llm|genai|machine learning|applied ai) (platform |infrastructure |systems )?engineer'
-  - '\bmlops\b'
-  - '\bmember of technical staff'
-  - '\bforward deployed engineer'
-  - '\bagent(s|ic)? (infrastructure|platform|engineer)'
-  - '\bdevops engineer'
-  - '\bcloud engineer'
+# --- Role tracks -----------------------------------------------------------------
+# Each track is a kind of role you're searching for. A title is routed to the first active
+# track whose title_include matches and whose title_exclude (plus the global one below)
+# doesn't. The track decides role families, Workday search terms, Claude's re-rank rubric,
+# and (optionally) apply-criteria overrides. Order matters: earlier tracks win ties.
+active_tracks: [swe, ds]
 
+tracks:
+  swe:
+    label: Software / SRE / AI engineering
+    target: Senior Software Engineer       # what Claude's re-rank judges you against
+    title_include:
+      - '\bsoftware (development )?engineer'
+      - '\bsde\b'
+      - '\bswe\b'
+      - '\bbackend\b'
+      - '\bback[- ]end\b'
+      - '\bplatform engineer'
+      - '\binfrastructure engineer'
+      - '\bsite reliability'
+      - '\bsre\b'
+      - '\breliability engineer'
+      - '\bproduction engineer'
+      - '\bdistributed systems'
+      - '\b(ai|ml|llm|genai|machine learning|applied ai) (platform |infrastructure |systems )?engineer'
+      - '\bmlops\b'
+      - '\bmember of technical staff'
+      - '\bforward deployed engineer'
+      - '\bagent(s|ic)? (infrastructure|platform|engineer)'
+      - '\bdevops engineer'
+      - '\bcloud engineer'
+    title_exclude:
+      - '\bscientist\b'                  # research / data / applied scientist titles belong to ds
+      # data-engineering titles belong to ds ("Software Engineer, Data Platform" stays here)
+      - '\bdata (platform|infrastructure|pipelines?|reliability|integration|warehouse|lakehouse) engineer'
+    seniority_stretch: ['\bstaff\b', '\blead\b', '\btechnical leader\b', '\barchitect\b']
+    workday_queries: ['software engineer', 'site reliability engineer', 'machine learning engineer']
+
+  ds:
+    label: Data science, analytics & data engineering
+    target: Senior Data Scientist
+    # Claude's re-rank and the RTA judge you against this instead, for jobs in these role types.
+    family_targets:
+      DS · Data engineering: Senior Data Engineer
+      DS · Analytics engineering: Senior Analytics Engineer
+    title_include:
+      - '\bdata scien(ce|tist)'
+      - '\b(applied|machine learning|ml|ai|decision|product|research data) scientist'
+      - '\bscientist,? (machine learning|ml|ai|data|analytics|applied)'
+      - '\b(product|growth|marketing|business|data|quantitative|decision) analytics\b'
+      - '\b(product|growth|quantitative|senior data|staff data|lead data) analyst'
+      - '\banalytics engineer'
+      - '\bdata engineer(ing)?\b'
+      - '\b(big data|etl|elt|dataops|data pipelines?|data warehouse|lakehouse|streaming data) (engineer|developer)'
+      - '\bdata (platform|infrastructure|reliability|integration|warehouse|lakehouse|ops) engineer'
+      - '\bdataops\b'
+      - '\bexperimentation\b'
+      - '\bcausal inference'
+      - '\b(statistician|econometrician)'
+      - '\bml (modeling|ranking|personalization)'
+      - '\b(ranking|recommendations?|personalization|search relevance) (scientist|engineer)'
+    title_exclude:
+      - '\bresearch scientist'            # mostly PhD / publication-driven; add back if that's you
+      - '\b(bio|clinical|chemi|soil|food)\w*\b|\blab\b'   # wet-lab and field sciences
+      - '\bdata entry'
+      - '\b(bi|business intelligence|reporting) (analyst|developer)'
+      - '\bactuar'
+      - '\bsolutions? (specialist|architect|consultant)|\bconsultant\b'   # pre-sales / services
+    seniority_stretch: ['\bstaff\b', '\blead\b', '\barchitect\b']
+    workday_queries: ['data scientist', 'applied scientist', 'machine learning scientist', 'analytics engineer',
+                      'data engineer']
+    # Optional per-track overrides of apply_criteria below (any key). DS bands run a bit
+    # lower than SWE at the same level, and a SWE-heavy profile scores lower on DS rubrics,
+    # so these are a reasonable starting point; delete to use the global values.
+    apply_criteria:
+      min_base_pay: 180000
+      min_match: 72
+      stretch_match: 62
+
+# Applies to every track.
 title_exclude:
   - '\bmanager\b'
   - '\bdirector\b'
@@ -68,15 +124,10 @@ title_exclude:
   - '\bsolutions? engineer'
   - '\bsupport engineer'
   - '\brecruit'
-  - '\bresearch scientist'
-  - '\bdata scientist'
   - '\bqa\b'
   - '\btest engineer'
   - '\bsecurity engineer'
   - '\b(japan|korea|germany|london|dublin|india|canada|emea|apac)\b'
-
-# Seniority fit: titles containing these get a small penalty (candidate targets Senior).
-seniority_stretch: ['\bstaff\b', '\blead\b', '\btechnical leader\b', '\barchitect\b']
 
 # --- Location ---------------------------------------------------------------------
 # Open to relocating anywhere in the US (confirmed 2026-09-28), so other US cities score
@@ -127,7 +178,8 @@ ashby: [openai, notion, ramp, plaid, confluent, snowflake, cohere, perplexity, a
 lever: [palantir, spotify, zoox, shieldai, gopuff]
 
 # Workday: tenant, wd host number, site name (from the careers URL
-# https://<tenant>.<wdN>.myworkdayjobs.com/<site>). Searched server-side with the queries below.
+# https://<tenant>.<wdN>.myworkdayjobs.com/<site>). Searched server-side with each active
+# track's workday_queries.
 workday:
   - {tenant: nvidia, host: wd5, site: NVIDIAExternalCareerSite, company: NVIDIA}
   - {tenant: salesforce, host: wd12, site: External_Career_Site, company: Salesforce}
@@ -138,8 +190,6 @@ workday:
   - {tenant: workday, host: wd5, site: Workday, company: Workday}
   - {tenant: capitalone, host: wd12, site: Capital_One, company: Capital One}
   - {tenant: autodesk, host: wd1, site: Ext, company: Autodesk}
-workday_queries: ['software engineer', 'site reliability engineer', 'machine learning engineer']
-
 # SmartRecruiters company identifiers.
 smartrecruiters: [ServiceNow, LinkedIn3]
 

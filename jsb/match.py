@@ -53,13 +53,46 @@ SKILLS: dict[str, str] = {
     "Networking": r"tcp/ip|\bbgp\b|network(ing)? protocols|load balanc",
     "Compilers / systems programming": r"compiler|\bkernel\b|\bllvm\b",
 }
-CASE_SENSITIVE = {"Go"}
+# Only scored on data science track jobs, so SWE scores are unchanged by them.
+DS_SKILLS: dict[str, str] = {
+    "Statistics": r"\bstatistic(s|al)\b|hypothesis test|regression (analysis|models?)|\bglms?\b|significance test",
+    "A/B testing / experimentation": r"a/b test|\bab test|experiment(ation|s)? (design|platform|framework|analysis)|"
+                                     r"online experiment|controlled experiment|\bexperimentation\b",
+    "Causal inference": r"causal (inference|analysis|model|ml|impact)|difference[- ]in[- ]differences|\bdiff[- ]in[- ]diff|"
+                        r"propensity|synthetic control|instrumental variable|uplift model",
+    "Bayesian methods": r"\bbayesian\b|\bmcmc\b|\bpymc\b|\bstan\b",
+    "Forecasting / time series": r"forecast|time[- ]series",
+    "Machine learning (modeling)": r"machine learning model|predictive model|\bclassification\b|\bclustering\b|"
+                                   r"supervised|unsupervised|model (training|development|building)|feature engineering",
+    "scikit-learn": r"scikit|sklearn", "XGBoost / GBMs": r"xgboost|lightgbm|catboost|gradient[- ]boost",
+    "Deep learning": r"deep learning|neural net", "NLP": r"\bnlp\b|natural language processing|text classification",
+    "Recommender / ranking": r"recommend(er|ation) (system|model)s?|\branking (model|system)s?|personalization|search relevance",
+    "Pandas / NumPy": r"\bpandas\b|\bnumpy\b|\bscipy\b|\bpolars\b", "Jupyter": r"jupyter|notebooks?\b",
+    "R": r"\bR\b(?!\s?&|\+\+|-\d)|\brstudio\b|\btidyverse\b|\bggplot",
+    "SAS / Stata / MATLAB": r"\bsas\b|\bstata\b|\bmatlab\b",
+    "Product analytics / metrics": r"product analytics|\bkpis?\b|metric(s)? (design|definition|framework)|north star|"
+                                   r"funnel|retention|cohort analysis|user behavior|growth analytics",
+    "BI / dashboards": r"tableau|looker|power ?bi|\bmode analytics\b|\bsuperset\b|dashboard",
+    "Snowflake": r"snowflake",
+    # data engineering
+    "Lakehouse / table formats": r"lakehouse|\biceberg\b|delta lake|\bhudi\b|\bparquet\b",
+    "Orchestration (Dagster/Prefect)": r"\bdagster\b|\bprefect\b|\bluigi\b|workflow orchestration|\borchestrat(ion|or) (tool|framework)s?",
+    "Data modeling": r"data model(l)?ing|dimensional model|star schema|\bkimball\b|slowly changing",
+    "CDC / ingestion": r"change data capture|\bcdc\b|debezium|fivetran|airbyte|data ingestion",
+    "Data quality": r"data quality|great expectations|data contracts?|data observability|data lineage",
+    "Stream processing": r"stream processing|streaming (data|pipelines?)|real[- ]time (data|pipelines?)|kinesis|spark streaming",
+    "Optimization / OR": r"operations research|linear programming|\bmixed[- ]integer\b|optimization (model|problem)s?",
+    "Data visualization": r"data visuali[sz]ation|matplotlib|seaborn|plotly",
+}
+TRACK_SKILLS = {"swe": set(SKILLS), "ds": set(SKILLS) | set(DS_SKILLS)}
+CASE_SENSITIVE = {"Go", "R"}
 # Candidate-side text is lower-cased, so case-sensitive JD patterns need a lower-case twin.
 # Anchored to the start of the skill-matrix row so "go" in prose ("go-live") doesn't count.
-CANDIDATE_OVERRIDE = {"Go": r"^(go|golang)\b"}
+CANDIDATE_OVERRIDE = {"Go": r"^(go|golang)\b", "R": r"^(r|r language|rstudio|tidyverse)\b"}
 
 # Skills so generic they shouldn't dominate the score when matched.
-LOW_SIGNAL = {"REST APIs", "Scalability / reliability", "Caching", "SQL", "Docker", "Linux"}
+LOW_SIGNAL = {"REST APIs", "Scalability / reliability", "Caching", "SQL", "Docker", "Linux", "Jupyter",
+              "BI / dashboards", "Data visualization"}
 
 PREFERRED_HDR = re.compile(r"^\s*(#+\s*)?(preferred|nice[- ]to[- ]have|bonus|pluses|it'?s a plus|"
                            r"ideally|additional qualifications|preferred qualifications)", re.I | re.M)
@@ -68,7 +101,7 @@ REQUIRED_HDR = re.compile(r"^\s*(#+\s*)?(requirements|required|minimum qualifica
 BOILERPLATE = re.compile(r"^\s*(#+\s*)?(.{0,40}equal (employment )?opportunity|we are an equal|reasonable accommodation|"
                          r"benefits|pay transparency|compensation|about us|about the company)", re.I | re.M)
 YEARS = re.compile(r"(\d{1,2})\s*\+?\s*(?:-\s*\d{1,2}\s*)?(?:\+\s*)?years?(?: of)?(?: professional| relevant| industry| hands-on)?"
-                   r"(?: software| engineering| backend| experience| work)", re.I)
+                   r"(?: software| engineering| backend| experience| work| data| analytics| quantitative| statistical| machine learning| applied)", re.I)
 FLAGS = {
     "Requires US citizenship / clearance": r"security clearance|\b(ts/sci|top secret|secret clearance|public trust)\b|"
                                            r"(?<!non-)(?<!non )\b(u\.?s\.?|united states) citizen(ship|s)?\b(?! or)|"
@@ -87,7 +120,8 @@ FLAGS = {
         r"|no (visa|h-?1b|immigration) sponsorship|not eligible for (visa|immigration) sponsorship"),
     "Onsite 5 days": r"(5|five) days (a|per) week (in|on)[- ]?(the )?(office|site)|fully on-?site",
 }
-ROLE_FAMILIES = [
+# Per track: (family, title regex, fit). First match wins; titles matching none get 0.7.
+ROLE_FAMILIES = {"swe": [
     ("SRE / Reliability", r"site reliability|\bsre\b|reliability|production engineer", 1.0),
     ("AI / Agent infra", r"\b(ai|ml|llm|genai|agent\w*|applied ai|inference)\b", 1.0),
     ("Backend / Distributed", r"backend|back-end|distributed|platform|infrastructure|systems engineer|cloud platform", 1.0),
@@ -95,7 +129,16 @@ ROLE_FAMILIES = [
     ("DevOps / Cloud", r"devops|cloud engineer", 0.8),
     ("Forward deployed", r"forward deployed", 0.7),
     ("Software Engineer", r"software|\bsde\b|\bswe\b|member of technical staff", 0.9),
-]
+], "ds": [
+    ("DS · Data engineering", r"data (engineer|platform|infrastructure|pipeline|reliability|integration|warehouse|ops)|"
+                              r"\bdataops\b|big data|\betl\b|\belt\b|lakehouse|streaming data", 0.95),
+    ("DS · Analytics engineering", r"analytics engineer", 0.9),
+    ("DS · ML / Applied science", r"applied scientist|machine learning|\bml\b|\bai\b|ranking|recommend|personaliz|"
+                                  r"relevance|modeling|nlp", 1.0),
+    ("DS · Experimentation / Causal", r"experiment|causal|inference|econometric|statistician|decision scien", 0.95),
+    ("DS · Product analytics", r"product|growth|marketing|analytics|analyst", 0.85),
+    ("DS · Data Scientist", r"data scien", 0.95),
+]}
 
 
 US_STATES = ("alabama alaska arizona arkansas california colorado connecticut delaware florida georgia hawaii "
@@ -134,6 +177,7 @@ class Match:
     passed: bool
     reject_reason: str = ""
     family: str = ""
+    track: str = ""
     location_class: str = ""
     required_years: int | None = None
     years_max: int | None = None
@@ -150,11 +194,12 @@ class Match:
 class Matcher:
     def __init__(self, cfg: dict, profile: Profile):
         self.cfg, self.profile = cfg, profile
-        flags = re.I
-        self.inc = [re.compile(p, flags) for p in cfg["title_include"]]
-        self.exc = [re.compile(p, flags) for p in cfg["title_exclude"]]
-        self.stretch = [re.compile(p, flags) for p in cfg["seniority_stretch"]]
-        self.skill_re = {k: re.compile(v, 0 if k in CASE_SENSITIVE else re.I) for k, v in SKILLS.items()}
+        comp = lambda pats: [re.compile(p, re.I) for p in pats]
+        self.exc = comp(cfg["title_exclude"])
+        # (name, include, exclude, seniority stretch) for each active track, in priority order
+        self.tracks = [(n, comp(t["title_include"]), comp(t["title_exclude"]), comp(t["seniority_stretch"]))
+                       for n in cfg["active_tracks"] for t in [cfg["tracks"][n]]]
+        self.skill_re = {k: re.compile(v, 0 if k in CASE_SENSITIVE else re.I) for k, v in {**SKILLS, **DS_SKILLS}.items()}
         self.cand = self._candidate_weights()
 
     # ---- candidate side -------------------------------------------------------
@@ -173,8 +218,21 @@ class Matcher:
         return w
 
     # ---- filters --------------------------------------------------------------
+    def track_for(self, title: str) -> str | None:
+        """The first active track that wants this title, or None."""
+        if any(r.search(title) for r in self.exc):
+            return None
+        return next((n for n, inc, exc, _ in self.tracks
+                     if any(r.search(title) for r in inc) and not any(r.search(title) for r in exc)), None)
+
+    def guess_track(self, title: str) -> str:
+        """For jobs you add by hand whose title no track claims: pick the closest one."""
+        ds = re.search(r"scien|analy|statist|data", title, re.I)
+        names = [n for n, *_ in self.tracks]
+        return "ds" if ds and "ds" in names else names[0]
+
     def title_ok(self, title: str) -> bool:
-        return any(r.search(title) for r in self.inc) and not any(r.search(title) for r in self.exc)
+        return self.track_for(title) is not None
 
     def location_class(self, job: Job) -> str:
         raw = job.location or ""
@@ -202,9 +260,9 @@ class Matcher:
         except ValueError:
             return None
 
-    def prefilter(self, job: Job, first_seen: str | None = None) -> str:
+    def prefilter(self, job: Job, first_seen: str | None = None, check_title: bool = True) -> str:
         """Cheap checks that need no description. Returns a reject reason or ''."""
-        if not self.title_ok(job.title):
+        if check_title and not self.title_ok(job.title):
             return "title"
         if self.location_class(job) == "non_us":
             return "location"
@@ -214,13 +272,16 @@ class Matcher:
         return ""
 
     # ---- scoring --------------------------------------------------------------
-    def score(self, job: Job, first_seen: str | None = None) -> Match:
-        reason = self.prefilter(job, first_seen)
+    def score(self, job: Job, first_seen: str | None = None, force: bool = False) -> Match:
+        """force: score even if the title/age filters reject it (for jobs you added by hand)."""
+        reason = "" if force else self.prefilter(job, first_seen)
         if reason:
             return Match(score=0, passed=False, reject_reason=reason)
+        track = self.track_for(job.title) or self.guess_track(job.title)
+        stretch = next((s for n, *_, s in self.tracks if n == track), [])
 
         desc = job.description or ""
-        jd_skills = self._jd_skills(desc)
+        jd_skills = self._jd_skills(desc, track)
         num = den = 0.0
         matched, partial, missing = [], [], []
         for skill, jw in sorted(jd_skills.items(), key=lambda kv: -kv[1]):
@@ -235,16 +296,17 @@ class Matcher:
             skill_score = 0.5 * skill_score + 0.2   # thin JD: pull toward neutral
         # Keyword overlap alone is fooled by JDs about unfamiliar work that happen to mention
         # Python or "agents". Also check what share of the JD's bullet lines touch evidenced skills.
-        coverage = self._line_coverage(desc)
+        coverage = self._line_coverage(desc, track)
         if coverage is not None:
             skill_score = 0.6 * skill_score + 0.4 * min(1.0, coverage / 0.6)
 
-        family, fam_score = next(((n, s) for n, rx, s in ROLE_FAMILIES if re.search(rx, job.title, re.I)), ("Other", 0.7))
+        family, fam_score = next(((n, s) for n, rx, s in ROLE_FAMILIES.get(track, ROLE_FAMILIES["swe"])
+                                  if re.search(rx, job.title, re.I)), ("Other", 0.7))
 
         t = job.title.lower()
         if re.search(r"senior staff|\bprincipal\b", t):
             level = 0.35
-        elif any(r.search(t) for r in self.stretch):
+        elif any(r.search(t) for r in stretch):
             level = 0.6
         elif re.search(r"\bsenior\b|\bsr\.?\b|\biii\b|\bl5\b|\be5\b", t):
             level = 1.0
@@ -280,21 +342,23 @@ class Matcher:
         if "Requires US citizenship / clearance" in flags:
             total -= 10
         total = min(total, cap)
-        return Match(score=round(total, 1), passed=True, family=family, location_class=loc_class,
+        return Match(score=round(total, 1), passed=True, family=family, track=track, location_class=loc_class,
                      required_years=yrs, years_max=yrs_max, matched=matched, partial=partial, missing=missing[:8],
                      flags=flags, components={k: round(v, 2) for k, v in comps.items()})
 
-    def _jd_skills(self, desc: str) -> dict[str, float]:
+    def _jd_skills(self, desc: str, track: str = "swe") -> dict[str, float]:
         """Weight each skill by where it appears: required 1.0, general 0.7, preferred 0.5."""
         weights: dict[str, float] = {}
+        wanted = TRACK_SKILLS.get(track, TRACK_SKILLS["swe"])
         for section, w in self._sections(desc):
             for skill, rx in self.skill_re.items():
-                if rx.search(section):
+                if skill in wanted and rx.search(section):
                     weights[skill] = max(weights.get(skill, 0), w)
         return weights
 
-    def _line_coverage(self, desc: str) -> float | None:
-        strong = [self.skill_re[k] for k, w in self.cand.items() if w >= 0.6 and k not in LOW_SIGNAL]
+    def _line_coverage(self, desc: str, track: str = "swe") -> float | None:
+        wanted = TRACK_SKILLS.get(track, TRACK_SKILLS["swe"])
+        strong = [self.skill_re[k] for k, w in self.cand.items() if w >= 0.6 and k not in LOW_SIGNAL and k in wanted]
         lines = [ln for sec, _ in self._sections(desc) for ln in sec.splitlines()
                  if ln.lstrip().startswith(("-", "*", "•")) and len(ln) > 25]
         if len(lines) < 5:
