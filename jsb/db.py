@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     llm_detail    TEXT,
     -- new -> shortlisted -> tailored -> prefilled -> submitted ; or skipped
     status        TEXT NOT NULL DEFAULT 'new',
-    rta_output    TEXT,
+    resume_output TEXT,   -- output/<folder> of the tailored resume
     notes         TEXT
 );
 CREATE TABLE IF NOT EXISTS scrape_runs (
@@ -58,6 +58,8 @@ def connect() -> sqlite3.Connection:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(jobs)")}
     if "submitted_at" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN submitted_at TEXT")
+    if "rta_output" in cols:   # databases from before resumes were tailored in this project
+        conn.execute("ALTER TABLE jobs RENAME COLUMN rta_output TO resume_output")
     return conn
 
 

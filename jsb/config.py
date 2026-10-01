@@ -8,13 +8,18 @@ ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT / "config" / "search.yaml"
 DATA_DIR = ROOT / "data"
 REPORTS_DIR = ROOT / "reports"
+RESUME_DIR = ROOT / "resume"
+OUTPUT_DIR = ROOT / "output"
+
+RESUME_DEFAULTS = {"base": None, "max_pages": 1, "model": "sonnet", "cover_letter": False}
 
 
 def load_config() -> dict:
     from .discover import load_discovered, merged_boards
 
     cfg = yaml.safe_load(CONFIG_PATH.read_text())
-    cfg["rta_path"] = (ROOT / cfg["rta_path"]).resolve()
+    cfg["resume"] = {**RESUME_DEFAULTS, **(cfg.get("resume") or {})}
+    cfg.setdefault("candidate", {})
     cfg = merged_boards(cfg)
     # Display names for board tokens (Ashby/Lever APIs don't return the company name).
     names = cfg.setdefault("company_names", {})
@@ -45,6 +50,13 @@ def _normalize_tracks(cfg: dict) -> None:
     # Every active track's search terms, de-duplicated, for boards searched server-side.
     cfg["workday_queries"] = list(dict.fromkeys(q for t in cfg["active_tracks"]
                                                 for q in cfg["tracks"][t]["workday_queries"]))
+
+
+def candidate_note(cfg: dict, profile) -> str:
+    """Where the candidate is and where they'll work, for Claude's prompts."""
+    c = cfg.get("candidate") or {}
+    loc = c.get("location") or profile.identity.get("location") or "location not stated"
+    return f"Based in {loc}. " + (c.get("relocation") or "")
 
 
 def track_target(cfg: dict, track: str | None, family: str | None = None) -> str:

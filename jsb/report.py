@@ -291,7 +291,7 @@ def build(conn) -> str:
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Job Search Dashboard</title><style>{CSS}</style></head>
 <body><div class="wrap">
 <h1>Job search dashboard</h1>
-<div class="sub">Roles ranked against your Resume Tailoring Assistant knowledge base, per search track · generated {date.today().isoformat()}</div>
+<div class="sub">Roles ranked against your base resume, per search track · generated {date.today().isoformat()}</div>
 <div class="cap" id="critline" style="margin-top:6px"></div>
 <div class="filters">
  <select id="crit"><option value="yes">Meets criteria (apply + stretch)</option><option value="apply">Apply tier only</option><option value="no">All scored jobs</option></select>

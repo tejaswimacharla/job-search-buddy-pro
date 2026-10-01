@@ -2,8 +2,8 @@
 attach the tailored resume, then hand control to you.
 
 This never clicks Submit. Questions about work authorization, sponsorship, salary,
-demographics, and free-text answers are left for you on purpose: the RTA profile
-deliberately doesn't store some of them, and answering them wrong can't be undone.
+demographics, and free-text answers are left for you on purpose: a resume doesn't hold
+them, and answering them wrong can't be undone.
 """
 from __future__ import annotations
 

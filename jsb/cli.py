@@ -7,9 +7,10 @@ import subprocess
 import sys
 import textwrap
 from datetime import date
+from pathlib import Path
 
 from . import blocklist, db, layoffs, report
-from .config import load_config, track_criteria, track_target
+from .config import ROOT, load_config, track_criteria, track_target
 from .criteria import check_row
 from .match import Matcher, label
 from .profile import load_profile
@@ -22,7 +23,7 @@ ALL_SOURCES = ["greenhouse", "ashby", "lever", "workday", "smartrecruiters", "ba
 
 def _ctx():
     cfg = load_config()
-    profile = load_profile(cfg["rta_path"])
+    profile = load_profile(cfg)
     return cfg, profile, Matcher(cfg, profile), db.connect()
 
 
@@ -123,7 +124,7 @@ def _score_all(conn, matcher, only_unscored=False):
 def cmd_score(args):
     cfg, profile, matcher, conn = _ctx()
     print(f"Candidate: {profile.identity.get('name')} · {profile.years_experience} yrs · "
-          f"{sum(r.eligible for r in profile.skill_rows)} evidence-backed skills · "
+          f"{sum(r.weight >= 0.85 for r in profile.skill_rows)} skills shown in bullets · "
           f"tracks: {', '.join(cfg['active_tracks'])}")
     _score_all(conn, matcher)
 
@@ -336,8 +337,8 @@ def cmd_show(args):
         for k in ("strengths", "gaps", "dealbreakers"):
             if llm.get(k):
                 print(f"  {k}: " + "; ".join(llm[k]))
-    if r["rta_output"]:
-        print(f"\nTailored package: {r['rta_output']}")
+    if r["resume_output"]:
+        print(f"\nTailored resume: {r['resume_output']}")
     if args.full:
         print("\n" + textwrap.fill(r["description"] or "", 100, replace_whitespace=False))
 
@@ -370,7 +371,7 @@ def cmd_mark(args):
 
 # ---------------------------------------------------------------- tailor / apply
 def cmd_tailor(args):
-    from .tailor import run_tailoring
+    from .tailor import find_pdf, run_tailoring
     cfg, profile, _, conn = _ctx()
     r = db.get(conn, args.id)
     if not r:
@@ -385,17 +386,18 @@ def cmd_tailor(args):
     job = db.row_to_job(r)
     if len(job.description) < 300:
         sys.exit("This posting has almost no description text; add it with `jsb add <url>` from the company page first.")
-    print(f"Tailoring for {job.company} · {job.title} in {cfg['rta_path']} (this takes a few minutes)...\n")
     target = track_target(cfg, _track(r), _family(r))
-    status, path = run_tailoring(job, cfg["rta_path"], model=args.model, stream=not args.quiet, target=target)
+    print(f"Tailoring your base resume for {job.company} · {job.title} (as a {target})...")
+    cover = args.cover_letter or cfg["resume"].get("cover_letter")
+    status, path = run_tailoring(job, profile, cfg, target, cover_letter=cover, anyway=args.anyway, model=args.model)
     if status == "ready":
-        db.set_status(conn, r["id"], "tailored", rta_output=path)
-        print(f"\nResume package ready: {cfg['rta_path'] / path}\nNext: review it, then `jsb apply {args.id}`.")
-    elif status == "needs_input":
-        db.set_status(conn, r["id"], "shortlisted", notes=f"needs input: {path}")
-        print(f"\nThe tailoring assistant needs your input first: {cfg['rta_path'] / path}/clarifying_questions.md")
+        db.set_status(conn, r["id"], "tailored", resume_output=path)
+        print(f"\nResume ready: {find_pdf(path)}\nReview {ROOT / path}/audit.md and analysis.md, "
+              f"then `jsb apply {args.id}`.")
     else:
-        print("\nTailoring didn't finish cleanly. Last output:\n" + path)
+        db.set_status(conn, r["id"], "shortlisted", notes=f"needs input: {path}")
+        print(f"\nNot enough direct evidence on your resume for this role's core themes; no resume made.\n"
+              f"See {path}/questions.md, or rerun with --anyway.")
 
 
 def cmd_apply(args):
@@ -417,11 +419,10 @@ def cmd_apply(args):
         sys.exit(f"Not applying: {capped[0]}. Oldest application drops out of the window first.")
     if fails and not args.force:
         sys.exit(f"Skipping: outside apply criteria ({', '.join(fails)}). Pass --force to apply anyway.")
-    rta = cfg["rta_path"]
-    pdf = find_pdf(rta, r["rta_output"]) if r["rta_output"] else None
+    pdf = find_pdf(r["resume_output"]) if r["resume_output"] else None
     if not pdf and not args.no_resume:
         sys.exit(f"No tailored resume yet. Run `jsb tailor {args.id}` first (or pass --no-resume).")
-    cover = next(iter(sorted((rta / r["rta_output"]).glob("cover_letter*.pdf"))), None) if r["rta_output"] else None
+    cover = next(iter(sorted((ROOT / r["resume_output"]).glob("*Cover_Letter*.pdf"))), None) if r["resume_output"] else None
     print(f"Opening {r['apply_url']}\nResume: {pdf}")
     if r["ats"] == "workday":
         print("Workday needs a candidate account per company; sign in yourself. Only fields on the first page get pre-filled.")
@@ -431,13 +432,60 @@ def cmd_apply(args):
     if ans == "y":
         det = json.loads(r["score_detail"] or "{}")
         db.set_status(conn, r["id"], "submitted", notes=f"submitted {date.today().isoformat()}")
-        if r["rta_output"]:
-            tracker.record(rta, company=r["company"], role=r["title"], jd_source=r["url"], output_rel=r["rta_output"],
+        if r["resume_output"]:
+            tracker.record(company=r["company"], role=r["title"], jd_source=r["url"], output_rel=r["resume_output"],
                            matches=det.get("matched", []), gaps=det.get("missing", []), status="submitted",
                            next_actions="follow up in ~1 week")
-        print("Marked submitted and logged in the RTA application_tracker.md.")
+        print(f"Marked submitted and logged in {tracker.PATH}.")
     else:
         print("Left as 'prefilled'. Run `jsb mark <#> submitted` later if you submit it.")
+
+
+# ---------------------------------------------------------------- base resume
+def cmd_resume(args):
+    from . import resume
+    from .config import RESUME_DIR
+    cfg = load_config()
+    if args.action == "use":
+        if not args.file:
+            sys.exit("Usage: jsb resume use <path to your resume>")
+        src = Path(args.file).expanduser().resolve()
+        if not src.exists() or src.suffix.lower() not in resume.SUPPORTED:
+            sys.exit(f"Need an existing {', '.join(resume.SUPPORTED)} file; got {src}")
+        RESUME_DIR.mkdir(exist_ok=True)
+        old = resume.candidates()
+        if old:   # keep previous versions, just out of the way
+            (RESUME_DIR / "previous").mkdir(exist_ok=True)
+            for p in old:
+                p.rename(RESUME_DIR / "previous" / f"{date.today().isoformat()}_{p.name}")
+        dest = RESUME_DIR / f"base_resume{src.suffix.lower()}"
+        dest.write_bytes(src.read_bytes())
+        print(f"Base resume set: {dest}" + (f" (previous version moved to {RESUME_DIR / 'previous'})" if old else ""))
+        if cfg["resume"].get("base") and (ROOT / cfg["resume"]["base"]).resolve() != dest:
+            print(f"Note: config/search.yaml sets resume.base to {cfg['resume']['base']}; clear it to use this file.")
+            return
+    res = resume.parsed(cfg, refresh=args.action == "parse")
+    from .profile import load_profile
+    prof = load_profile(cfg)
+    ident = res["identity"]
+    print(f"\n{ident.get('name')} · {ident.get('location')} · {ident.get('email')} · {ident.get('phone')}")
+    print(f"Source: {res['source']['file']} · {prof.years_experience} years of experience\n")
+    for e in res["experience"]:
+        print(f"[{e['id']}] {e['title']}, {e['company']} ({e['start']} to {e['end']}) · {len(e['bullets'])} bullets")
+        if args.full:
+            for b in e["bullets"]:
+                print(f"     [{b['id']}] {textwrap.shorten(b['text'], 110)}")
+    for pr in res.get("projects") or []:
+        print(f"[{pr['id']}] Project: {pr['name']} · {len(pr['bullets'])} bullets")
+    ev = res["skill_evidence"]
+    shown = [s for s, ids in ev.items() if ids]
+    print(f"\nSkills shown in bullets ({len(shown)}): {', '.join(shown)}")
+    print(f"Skills section only ({len(ev) - len(shown)}): {', '.join(s for s, ids in ev.items() if not ids)}")
+    if res["source"].get("not_verbatim"):
+        print(f"\nNote: {len(res['source']['not_verbatim'])} bullets don't match the file word for word "
+              f"({', '.join(res['source']['not_verbatim'][:8])}); check them with `jsb resume --full`.")
+    if args.action == "parse":
+        print("\nRe-parsed. Run `jsb score` to re-score jobs against it.")
 
 
 # ---------------------------------------------------------------- blocklist
@@ -635,7 +683,7 @@ def main(argv=None):
     s.add_argument("--source", action="append", choices=ALL_SOURCES)
     s.set_defaults(fn=cmd_scrape)
 
-    sub.add_parser("score", help="Re-score all open jobs (after your knowledge base changes)").set_defaults(fn=cmd_score)
+    sub.add_parser("score", help="Re-score all open jobs (after your base resume changes)").set_defaults(fn=cmd_score)
 
     s = sub.add_parser("rerank", help="Second-pass ranking of the top jobs with Claude")
     s.add_argument("--top", type=int, default=20)
@@ -668,10 +716,11 @@ def main(argv=None):
     s.add_argument("status", choices=db.STATUSES)
     s.set_defaults(fn=cmd_mark)
 
-    s = sub.add_parser("tailor", help="Run the Resume Tailoring Assistant on a job")
+    s = sub.add_parser("tailor", help="Tailor your base resume to a job (PDF + truth audit)")
     s.add_argument("id")
-    s.add_argument("--model")
-    s.add_argument("--quiet", action="store_true")
+    s.add_argument("--model", help="Claude model (default: resume.model in config)")
+    s.add_argument("--cover-letter", action="store_true", help="Also write a cover letter")
+    s.add_argument("--anyway", action="store_true", help="Tailor even if few core themes have direct evidence")
     s.add_argument("--force", action="store_true", help="Ignore the apply criteria")
     s.set_defaults(fn=cmd_tailor)
 
@@ -680,6 +729,13 @@ def main(argv=None):
     s.add_argument("--no-resume", action="store_true")
     s.add_argument("--force", action="store_true", help="Ignore the apply criteria")
     s.set_defaults(fn=cmd_apply)
+
+    s = sub.add_parser("resume", help="Your base resume: show what was read from it, re-parse it, or set a new one")
+    s.add_argument("action", choices=["show", "parse", "use"], nargs="?", default="show",
+                   help="show (default) · parse: re-read it with Claude · use <file>: make <file> your base resume")
+    s.add_argument("file", nargs="?")
+    s.add_argument("--full", action="store_true", help="Also print every bullet with its ID")
+    s.set_defaults(fn=cmd_resume)
 
     s = sub.add_parser("block", help="Add a company to the do-not-apply list")
     s.add_argument("company")

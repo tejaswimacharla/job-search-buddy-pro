@@ -1,9 +1,20 @@
-# job-search-buddy search configuration.
-# Candidate facts (name, contact, skills, experience) are NOT stored here. They are
-# read live from the Resume Tailoring Assistant (RTA) knowledge base so there is one
-# source of truth.
+# job-search-buddy-pro search configuration.
+# Candidate facts (name, contact, skills, experience) are NOT stored here. They are read from
+# your base resume, so there is one source of truth.
 
-rta_path: ../resume-tailoring-assistant
+# Your base resume: PDF, DOCX, Markdown or plain text, in resume/ (git-ignored). If `base` is
+# left empty, the one file in resume/ is used. `jsb resume` shows what was read from it.
+resume:
+  base:                   # e.g. resume/base_resume.pdf
+  max_pages: 1            # tailored resumes are fitted to this many pages
+  model: sonnet           # Claude model used to parse and tailor
+  cover_letter: false     # also write a cover letter on every `jsb tailor` (or pass --cover-letter)
+
+# Context for Claude's match scoring. Location defaults to the one on your resume.
+candidate:
+  location: Sunnyvale, CA
+  relocation: Open to remote (US), Bay Area onsite/hybrid, or relocating anywhere in the US,
+    so a US location is never a gap or dealbreaker.
 
 # Only keep postings first seen / published within this many days.
 max_age_days: 21

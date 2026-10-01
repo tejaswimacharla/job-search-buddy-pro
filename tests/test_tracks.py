@@ -1,5 +1,5 @@
 """Run: .venv/bin/python tests/test_tracks.py  — title routing and scoring per track, with a
-synthetic profile (no RTA knowledge base needed)."""
+synthetic profile (no base resume needed)."""
 import sys
 from datetime import date
 from pathlib import Path

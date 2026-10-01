@@ -1,15 +1,25 @@
 .venv/
 __pycache__/
+*.pyc
+.DS_Store
+.env
+.env.*
+*.log
+uv.lock.bak
+
+# Generated: job database, cached resume parse, tracker, dashboard, browser logins
 data/
 reports/
 .browser-profile/
-*.pyc
-config/blocked_companies.yaml
+tests/dummy.pdf
 
-# Personal / generated config: kept local, never committed
+# Personal config: kept local, never committed
 config/layoffs.yaml
 config/companies_discovered.yaml
 config/blocked_companies.yaml
-tests/dummy.pdf
-.DS_Store
-uv.lock.bak
+.claude/settings.local.json
+
+# Your base resume and everything generated from it
+resume/*
+!resume/README.md
+output/

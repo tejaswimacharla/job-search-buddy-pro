@@ -40,8 +40,7 @@ credential, degree or domain the candidate clearly lacks, far more years than th
 each list item under 12 words.
 
 # Candidate (target: {target}; {years} years total experience)
-Based in Sunnyvale, CA. Open to remote (US), Bay Area onsite/hybrid, or relocating anywhere
-in the US, so a US location is never a gap or dealbreaker.
+{candidate_note}
 {profile}
 
 # Job: {title} at {company} ({location})
@@ -56,8 +55,8 @@ GUIDANCE = {
   work with a different tool is a good match: AWS CDK for Terraform, AWS for GCP/Azure, Java/Kotlin
   for another JVM or typed language, one message queue or datastore for another, internal
   platforms for similar products. Treat these as small gaps, not missing requirements.
-- Skills under "Also listed on the candidate's resumes" were very likely used day to day in those
-  roles (e.g. EC2, S3, CloudWatch for a 4.5-year AWS SDE); count them as working familiarity.
+- Skills under "Listed in the skills section only" were very likely used day to day in those
+  roles (e.g. EC2, S3, CloudWatch for a multi-year AWS engineer); count them as working familiarity.
 - The big gaps are domain or specialty ones a transferable skill can't cover: e.g. a role that is
   mostly research/model training, mobile, frontend, hardware, or a regulated domain the posting
   requires prior experience in.""",
@@ -84,7 +83,7 @@ GUIDANCE = {
   distributed engine, BigQuery for Snowflake, R for Python in analysis work, an LLM evaluation
   harness for an offline model-evaluation framework, metric dashboards built for a service for
   product metrics work.
-- Skills under "Also listed on the candidate's resumes" were very likely used day to day; count
+- Skills under "Listed in the skills section only" were very likely used day to day; count
   them as working familiarity.
 - Judge seniority by years of data/ML/analysis work, not total engineering years. A senior
   engineer moving into DS may fit mid-level DS better; say so in the gaps instead of skipping.
@@ -121,14 +120,21 @@ def rerank(job: Job, profile: Profile, model: str = "sonnet", runs: int | None =
 
 def _rerank_once(job: Job, profile: Profile, model: str, track: str = "swe",
                  target: str = "Senior Software Engineer") -> dict:
+    from .config import candidate_note, load_config
     prompt = PROMPT.format(guidance=GUIDANCE.get(track, GUIDANCE["swe"]), target=target,
+                           candidate_note=candidate_note(load_config(), profile),
                            years=profile.years_experience, profile=profile.summary_for_llm,
                            title=job.title, company=job.company, location=job.location,
                            description=job.description[:12000])
+    return ask_json(prompt, SCHEMA, model)
+
+
+def ask_json(prompt: str, schema: dict, model: str = "sonnet", timeout: int = 300) -> dict:
+    """One structured-output call through the local `claude` CLI (your Claude Code login), no tools."""
     proc = subprocess.run(
         ["claude", "-p", "--output-format", "json", "--tools", "", "--model", model,
-         "--no-session-persistence", "--json-schema", json.dumps(SCHEMA)],
-        input=prompt, capture_output=True, text=True, timeout=300)
+         "--no-session-persistence", "--json-schema", json.dumps(schema)],
+        input=prompt, capture_output=True, text=True, timeout=timeout)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or proc.stdout[:500])
     out = json.loads(proc.stdout)
