@@ -1,0 +1,184 @@
+# job-search-buddy search configuration.
+# Candidate facts (name, contact, skills, experience) are NOT stored here. They are
+# read live from the Resume Tailoring Assistant (RTA) knowledge base so there is one
+# source of truth.
+
+rta_path: ../resume-tailoring-assistant
+
+# Only keep postings first seen / published within this many days.
+max_age_days: 21
+
+# How many times Claude scores each job in `rerank`; the scores are averaged (single runs vary ~±7).
+rerank_runs: 2
+
+# Minimum rule-based score (0-100) to show in `jsb list` / the report.
+min_score: 55
+
+# --- Role filters ---------------------------------------------------------------
+# A title must match at least one include pattern and no exclude pattern.
+# Patterns are case-insensitive regexes.
+title_include:
+  - '\bsoftware (development )?engineer'
+  - '\bsde\b'
+  - '\bswe\b'
+  - '\bbackend\b'
+  - '\bback[- ]end\b'
+  - '\bplatform engineer'
+  - '\binfrastructure engineer'
+  - '\bsite reliability'
+  - '\bsre\b'
+  - '\breliability engineer'
+  - '\bproduction engineer'
+  - '\bdistributed systems'
+  - '\b(ai|ml|llm|genai|machine learning|applied ai) (platform |infrastructure |systems )?engineer'
+  - '\bmlops\b'
+  - '\bmember of technical staff'
+  - '\bforward deployed engineer'
+  - '\bagent(s|ic)? (infrastructure|platform|engineer)'
+  - '\bdevops engineer'
+  - '\bcloud engineer'
+
+title_exclude:
+  - '\bmanager\b'
+  - '\bdirector\b'
+  - '\bhead of\b'
+  - '\bvp\b'
+  - '\bintern(ship)?\b'
+  - '\bnew grad'
+  - '\b(university|college) grad'
+  - '\bgraduate\b'
+  - '\bamts\b'
+  - '\bjunior\b'
+  - '\bentry[- ]level\b'
+  - '\bassociate\b'
+  - '\bprincipal\b'
+  - '\bdistinguished\b'
+  - '\bfellow\b'
+  - '\b(ios|android|mobile)\b'
+  - '\bfront[- ]?end\b'
+  - '\bdesign systems?\b'
+  - '\bfirmware\b'
+  - '\bembedded\b'
+  - '\bhardware\b'
+  - '\bfpga\b'
+  - '\basic\b'
+  - '\bsilicon\b'
+  - '\bverification\b'
+  - '\bsales\b'
+  - '\bsolutions? engineer'
+  - '\bsupport engineer'
+  - '\brecruit'
+  - '\bresearch scientist'
+  - '\bdata scientist'
+  - '\bqa\b'
+  - '\btest engineer'
+  - '\bsecurity engineer'
+  - '\b(japan|korea|germany|london|dublin|india|canada|emea|apac)\b'
+
+# Seniority fit: titles containing these get a small penalty (candidate targets Senior).
+seniority_stretch: ['\bstaff\b', '\blead\b', '\btechnical leader\b', '\barchitect\b']
+
+# --- Location ---------------------------------------------------------------------
+# Open to relocating anywhere in the US (confirmed 2026-09-28), so other US cities score
+# almost the same as the Bay Area. Non-US roles are filtered out entirely.
+location_weights:
+  bay_area: 1.0         # home base, no move
+  remote_us: 1.0
+  us: 0.95              # anywhere else in the US (relocation)
+  remote_unclear: 0.8   # "Remote" with no country stated
+  unknown: 0.6          # location couldn't be parsed
+
+# Postings must mention one of these (or be remote in the US) to be kept.
+preferred_locations: ['sunnyvale', 'san jose', 'santa clara', 'mountain view', 'palo alto',
+                      'cupertino', 'menlo park', 'redwood city', 'san mateo', 'san francisco',
+                      'bay area', 'south bay', 'foster city', 'sf office', 'burlingame',
+                      'fremont', 'milpitas', 'oakland', 'emeryville', 'berkeley', 'los gatos',
+                      'campbell', 'los altos', 'brisbane', 'south san francisco']
+us_markers: ['united states', 'usa', 'u.s.', ', ca', 'california', 'new york', ', ny', 'seattle',
+             ', wa', 'austin', ', tx', 'texas', 'boston', ', ma', 'chicago', 'denver', 'atlanta',
+             'los angeles', 'remote - us', 'remote (us', 'us remote', 'us-remote', 'remote, us',
+             'north america', 'bellevue', 'portland', 'washington', 'new jersey', 'virginia']
+non_us_markers: ['london', 'dublin', 'toronto', 'vancouver', 'montreal', 'canada', 'india',
+                 'bangalore', 'bengaluru', 'hyderabad', 'berlin', 'munich', 'germany', 'paris',
+                 'amsterdam', 'singapore', 'tokyo', 'japan', 'sydney', 'australia', 'tel aviv',
+                 'israel', 'zurich', 'warsaw', 'poland', 'mexico', 'brazil', 'são paulo',
+                 'seoul', 'korea', 'uk', 'united kingdom', 'ireland', 'spain', 'madrid',
+                 'barcelona', 'lisbon', 'stockholm', 'copenhagen', 'emea', 'apac', 'latam']
+
+# --- Sources ----------------------------------------------------------------------
+# Public job-board APIs (no login, no scraping of logged-in pages).
+# Add a company by its board token: e.g. https://job-boards.greenhouse.io/<token>
+greenhouse: [anthropic, databricks, stripe, airbnb, figma, brex, coinbase, robinhood, dropbox,
+             lyft, instacart, pinterest, reddit, discord, roblox, asana, gitlab, cloudflare,
+             datadog, mongodb, elastic, scaleai, cresta, togetherai, coreweave, vercel,
+             planetscale, cockroachlabs, grafanalabs, honeycomb, pagerduty, launchdarkly,
+             gusto, mercury, chime, affirm, sofi, samsara, verkada, flexport, nuro, waymo,
+             gleanwork, tailscale, twilio, okta, zscaler, rubrik, block, toast, klaviyo,
+             webflow, calendly, faire, nextdoor, peloton, lucidmotors, upstart, checkr, xai,
+             figureai]
+
+ashby: [openai, notion, ramp, plaid, confluent, snowflake, cohere, perplexity, anyscale, modal,
+        pinecone, langchain, harvey, sierra, decagon, commure, fluidstack, baseten, runpod,
+        lambda, crusoe, cerebras, elevenlabs, suno, writer, supabase, temporal, sentry,
+        posthog, linear, nerdwallet, applied, skydio, openevidence, abridge, benchling, vanta,
+        drata, zapier, miro, thumbtack, cursor, cognition, poolside, physicalintelligence,
+        fireworks]
+
+lever: [palantir, spotify, zoox, shieldai, gopuff]
+
+# Workday: tenant, wd host number, site name (from the careers URL
+# https://<tenant>.<wdN>.myworkdayjobs.com/<site>). Searched server-side with the queries below.
+workday:
+  - {tenant: nvidia, host: wd5, site: NVIDIAExternalCareerSite, company: NVIDIA}
+  - {tenant: salesforce, host: wd12, site: External_Career_Site, company: Salesforce}
+  - {tenant: adobe, host: wd5, site: external_experienced, company: Adobe}
+  - {tenant: intel, host: wd1, site: External, company: Intel}
+  - {tenant: cisco, host: wd5, site: Cisco_Careers, company: Cisco}
+  - {tenant: paypal, host: wd1, site: jobs, company: PayPal}
+  - {tenant: workday, host: wd5, site: Workday, company: Workday}
+  - {tenant: capitalone, host: wd12, site: Capital_One, company: Capital One}
+  - {tenant: autodesk, host: wd1, site: Ext, company: Autodesk}
+workday_queries: ['software engineer', 'site reliability engineer', 'machine learning engineer']
+
+# SmartRecruiters company identifiers.
+smartrecruiters: [ServiceNow, LinkedIn3]
+
+# --- Apply criteria ---------------------------------------------------------------
+# Hard gates for tailoring and applying. Jobs outside these still get scraped and scored
+# (they appear in the dashboard with the "all jobs" toggle) but `tailor`, `apply` and
+# `rerank` skip them unless you pass --force.
+apply_criteria:
+  max_posted_hours: 72          # posted within the last 72 hours
+  min_base_pay: 200000          # USD/year (top of the posted range must be above this)
+  pay_basis: top                # top: range must reach above min_base_pay; bottom: whole range above it
+  include_unlisted_pay: false   # postings with no pay range can't be verified, so they're excluded
+  years_min: 2                  # the posting's required years must fall within 2..7
+  years_max: 7
+  include_unlisted_years: true  # many senior postings don't state years; keep them
+  exclude_citizenship_required: true  # US citizenship / clearance / ITAR roles (needs visa support)
+  exclude_no_sponsorship: true        # postings saying they won't / may not sponsor H-1B or other visas
+  exclude_recent_layoffs_months: 6    # companies with layoffs in this window (PERM-friendliness); 0 = off
+  min_match: 75                 # "apply" tier: match % (Claude's score once re-ranked, else the rule score)
+  stretch_match: 65             # "stretch" tier: 65-74% also qualifies, listed separately
+
+  # Companies that cap how often you can apply. above_match is strict (">"), and the cap counts
+  # submissions tracked here plus any dates you list under already_applied.
+  company_limits:
+    - company: OpenAI
+      max_applications: 6
+      window_days: 180
+      above_match: 85
+      already_applied: []       # e.g. [2026-07-14, 2026-08-02]
+    - company: Anthropic
+      max_applications: 6
+      window_days: 180
+      above_match: 85
+      already_applied: []
+
+# Where layoff data comes from: official California WARN notices (refreshed on every scrape),
+# plus Claude web research for companies with qualifying jobs. Your own entries and
+# exceptions go in config/layoffs.yaml.
+layoffs:
+  research_ttl_days: 7      # re-check a company's news after this many days
+  research_model: sonnet
+  research_per_run: 25      # max companies researched per `jsb daily`

@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+data/
+reports/
+.browser-profile/
+*.pyc
+config/blocked_companies.yaml
+
+# Personal / generated config: kept local, never committed
+config/layoffs.yaml
+config/companies_discovered.yaml
+config/blocked_companies.yaml
+tests/dummy.pdf
+.DS_Store
+uv.lock.bak

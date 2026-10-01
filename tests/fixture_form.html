@@ -1,0 +1,19 @@
+<!doctype html><html><body>
+<!-- Mimics Lever / Greenhouse / Ashby markup patterns. Local only; there is no submit handler. -->
+<form onsubmit="return false">
+ <div class="field"><input type="file" id="autofill"></div>
+ <label for="first_name">First Name*</label><input id="first_name" name="first_name" required>
+ <label for="last_name">Last Name*</label><input id="last_name" name="last_name" required>
+ <div class="application-question"><div class="application-label">Full name ✱</div><input name="name" required></div>
+ <label for="email">Email*</label><input id="email" type="email" name="email" required>
+ <div class="field"><label>Phone</label><input role="combobox" aria-autocomplete="list" required></div>
+ <label for="phone">Phone*</label><input id="phone" type="tel" name="phone" required>
+ <div class="field"><label>Resume</label><input type="file" name="_systemfield_resume" required></div>
+ <label for="cl">Cover Letter</label><input id="cl" type="file" name="cover_letter">
+ <label for="li">LinkedIn Profile URL*</label><input id="li" name="question_1" required>
+ <label for="org">Current company</label><input id="org" name="org">
+ <label for="auth">Are you legally authorized to work in the country where this position is located?*</label><input id="auth" required>
+ <label for="sp">Will you require sponsorship?*</label><input id="sp" required>
+ <label for="why">Why do you want to work here?*</label><textarea id="why" required></textarea>
+ <button type="submit">Submit application</button>
+</form></body></html>
