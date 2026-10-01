@@ -192,7 +192,7 @@ function render() {
   const trk = $('#trk').value, C = D.critByTrack[trk] || D.crit;
   const eligJ = D.jobs.filter(j => !j.fails.length && !j.blocked && j.status !== 'submitted' && (!trk || j.track === trk)),
     elig = eligJ.length, nApply = eligJ.filter(j => j.tier === 'apply').length, nb = D.jobs.filter(j => j.blocked && (!trk || j.track === trk)).length;
-  $('#critline').textContent = `Criteria: posted in the last ${C.max_posted_hours}h · top of base pay above $${C.min_base_pay/1000}K · asks ${C.years_min}–${C.years_max} years`
+  $('#critline').textContent = `Criteria: posted in the last ${C.max_posted_hours}h` + (C.min_base_pay ? ` · top of base pay above $${C.min_base_pay/1000}K` : '') + ` · asks ${C.years_min}–${C.years_max} years`
     + (C.exclude_citizenship_required ? ' · no citizenship/clearance' : '') + (C.exclude_recent_layoffs_months ? ` · no layoffs in ${C.exclude_recent_layoffs_months} months` : '')
     + (C.min_match ? ` · match ${C.min_match}%+ (stretch ${C.stretch_match}%+)` : '') + D.caps.map(c => ` · ${c.company} above ${c.above}%`).join('')
     + (trk ? '' : Object.entries(D.overrides).filter(([, o]) => Object.keys(o).length)

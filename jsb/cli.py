@@ -168,8 +168,9 @@ def _blocked_exit(row) -> None:
 
 def _criteria_line(cfg, track: str | None = None) -> str:
     c = track_criteria(cfg, track)
-    line = (f"posted ≤{c['max_posted_hours']}h · top of pay >${c['min_base_pay'] // 1000}K · "
-            f"asks {c['years_min']}-{c['years_max']} yrs")
+    line = (f"posted ≤{c['max_posted_hours']}h · "
+            + (f"top of pay >${c['min_base_pay'] // 1000}K · " if c.get("min_base_pay") else "")
+            + f"asks {c['years_min']}-{c['years_max']} yrs")
     if c.get("min_match"):
         line += f" · match {c['min_match']}%+" + (f" (stretch {c['stretch_match']}%+)" if c.get("stretch_match") else "")
     for lim in c.get("company_limits") or []:
@@ -676,7 +677,12 @@ def cmd_daily(args):
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(prog="jsb", description="Job search buddy: scrape → match → tailor → assisted apply")
+    from .config import PROFILE
+    p = argparse.ArgumentParser(prog="jsb", description="Job search buddy: scrape → match → tailor → assisted apply. "
+                                "Options for any command: --profile NAME (run as another candidate, data in "
+                                "profiles/NAME/) · --min-pay 200K (pay floor; 0 = off) · --perm [MONTHS] (skip "
+                                "companies with layoffs in the last MONTHS, default 6) · --no-perm."
+                                + (f" Current profile: {PROFILE}." if PROFILE else ""))
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("scrape", help="Fetch jobs from all configured boards and score them")

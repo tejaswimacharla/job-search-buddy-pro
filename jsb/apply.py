@@ -10,10 +10,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .config import ROOT
+from .config import BROWSER_DIR
 from .profile import Profile
 
-PROFILE_DIR = ROOT / ".browser-profile"
+PROFILE_DIR = BROWSER_DIR
 
 # label regex -> profile key. First match wins, so order matters.
 FIELD_RULES: list[tuple[str, str]] = [

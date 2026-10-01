@@ -27,6 +27,32 @@ uv sync                          # once
 
 Optional: `alias jsb="$PWD/jsb.sh"` in your `~/.zshrc`.
 
+## Candidate profiles (more than one resume)
+
+Put `--profile NAME` on any command to run as another candidate. Everything about them lives in
+`profiles/NAME/` (git-ignored): their base resume, job database, tailored resumes, dashboard,
+application tracker, browser logins and do-not-apply list. Your own setup at the project root is
+untouched.
+
+```bash
+./jsb.sh --profile alex resume use ~/Downloads/alex_resume.docx
+./jsb.sh --profile alex scrape
+./jsb.sh --profile alex rerank --top 20
+./jsb.sh --profile alex list
+```
+
+`profiles/NAME/config.yaml` overrides `config/search.yaml` for that candidate; nested settings
+merge key by key. For example:
+
+```yaml
+candidate:
+  location: Chicago, IL
+  relocation: Prefers Chicago or remote.
+preferred_locations: [chicago, evanston, naperville]   # the "home" area for location scoring
+apply_criteria:
+  exclude_no_sponsorship: false
+```
+
 ## Search tracks (SWE + Data Science)
 
 Roles are searched in **tracks**, set in `config/search.yaml` under `tracks` and switched on with
@@ -89,7 +115,7 @@ reading `~/Documents`, where both projects live.)
 | `mark <#> <status>` | `new`, `shortlisted`, `tailored`, `prefilled`, `submitted`, `skipped` |
 | `block` / `unblock` / `blocked` | Manage the do-not-apply company list (see below) |
 | `report` | Rebuild and open the dashboard, `reports/matches.html`: postings scanned per run, relevant roles, new today, strong matches, median match and pay, the match-score distribution, top companies, role types, locations, a base-pay histogram, your application pipeline, and a sortable, filterable jobs table (match %, Claude score, company, role, location, pay, posted, status) |
-| `daily [--rerank N]` | scrape → rerank → report |
+| `daily [--rerank N] [--min-pay 200K] [--perm]` | scrape → rerank → report |
 
 ## Where jobs come from
 
@@ -129,15 +155,36 @@ Breezy, ADP, SuccessFactors and others) are recorded with `ats: null`; add their
 ## Apply criteria
 
 Set in `config/search.yaml` under `apply_criteria` (currently: posted in the last **72 hours**,
-top of base pay **above $200K**, posting asks for **2–7 years**). `list`, `rerank` and the dashboard
-default to jobs that meet them, and `tailor` / `apply` refuse anything outside them unless you
-pass `--force` (`list --all` and `rerank --all` show everything).
+posting asks for **2–7 years**). `list`, `rerank` and the dashboard default to jobs that meet
+them, and `tailor` / `apply` refuse anything outside them unless you pass `--force`
+(`list --all` and `rerank --all` show everything).
+
+### Optional filters: pay floor and PERM (off by default)
+
+Two filters are off unless you turn them on, either for one run with a flag that works on any
+command (`list`, `rerank`, `show`, `report`, `daily`, `tailor`, `apply`, …), or permanently in
+`config/search.yaml` or a profile's `config.yaml`:
+
+| Filter | Flag | Config key | Default |
+|---|---|---|---|
+| Base-pay floor | `--min-pay 200K` (`--min-pay 0` = off) | `min_base_pay` | `0` (off) |
+| Recent layoffs (PERM-friendliness) | `--perm` (6 months) or `--perm 9`; `--no-perm` = off | `exclude_recent_layoffs_months` | `0` (off) |
+
+```bash
+./jsb.sh list --min-pay 200K --perm          # the original setup: pay above $200K, no layoffs in 6 months
+./jsb.sh daily --rerank 25 --min-pay 180K    # pay floor only, for this run
+./jsb.sh --profile alex list --perm          # PERM filter for another candidate
+```
+
+Flags beat the config, profile config and per-track overrides. With the layoff filter off,
+`daily` skips layoff research, `scrape` skips the WARN refresh, and `tailor` / `apply` don't
+research the company first; `jsb layoffs ...` still works on demand.
 
 - **Posted:** uses the board's own publish timestamp. Greenhouse reports the original publish
   date, so a reposted role counts from when it first went up.
-- **Pay:** the top of the posted base range must be above $200K. Set `pay_basis: bottom` to
-  require the whole range above it. Postings with no pay range are excluded
-  (`include_unlisted_pay`).
+- **Pay** (optional, see above): the top of the posted base range must be above the floor. Set
+  `pay_basis: bottom` to require the whole range above it. While the floor is on, postings with
+  no pay range are excluded (`include_unlisted_pay`); with it off, pay isn't checked at all.
 - **Years:** every years figure in the required sections (not "preferred") must fall between
   2 and 7. For example, "5+ years" passes and "8+ years" fails. Postings that don't state
   years are kept (`include_unlisted_years`).
@@ -152,18 +199,21 @@ pass `--force` (`list --all` and `rerank --all` show everything).
   (`stretch_match`, roles with one clear gap but related experience). Both qualify; `list` and
   the dashboard show them separately. This uses Claude's score once a job is re-ranked,
   otherwise the rule score; `tailor` and `apply` re-rank first if needed.
-- **Company caps** (`company_limits`): OpenAI and Anthropic allow 6 applications per 180 days,
-  so they need a match above 85%. `apply` refuses once a cap is used up, even with `--force`.
-  Applications made outside this tool go under `already_applied` so they count.
-- **Recent layoffs:** companies with layoffs in the last 6 months are excluded
-  (`exclude_recent_layoffs_months`). See below.
+- **Company caps** (optional, `company_limits`, none by default): for a company that limits how
+  often you can apply (e.g. 6 applications per 180 days), require a higher match (e.g. above
+  85%), and `apply` refuses once the cap is used up, even with `--force`. Applications made
+  outside this tool go under `already_applied` so they count. There's a commented example in
+  `config/search.yaml`.
+- **Recent layoffs** (optional, see above): with `--perm`, companies with layoffs in the last 6
+  months are excluded (`exclude_recent_layoffs_months`). See below.
 
 ## Recent layoffs (PERM-friendliness)
 
 Before filing PERM, an employer must notify workers it laid off in the same or a related
 occupation in the area within the previous 6 months. Many employers pause PERM after layoffs,
-so companies with recent layoffs are excluded. That's deliberately stricter than the rule,
-which only covers the same occupation and area.
+so with the filter on (`--perm`, or `exclude_recent_layoffs_months: 6`), companies with recent
+layoffs are excluded. That's deliberately stricter than the rule, which only covers the same
+occupation and area.
 
 Where the data comes from:
 1. **California and Washington WARN notices**, official state data refreshed on every

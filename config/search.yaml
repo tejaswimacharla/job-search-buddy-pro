@@ -96,11 +96,10 @@ tracks:
     seniority_stretch: ['\bstaff\b', '\blead\b', '\barchitect\b']
     workday_queries: ['data scientist', 'applied scientist', 'machine learning scientist', 'analytics engineer',
                       'data engineer']
-    # Optional per-track overrides of apply_criteria below (any key). DS bands run a bit
-    # lower than SWE at the same level, and a SWE-heavy profile scores lower on DS rubrics,
-    # so these are a reasonable starting point; delete to use the global values.
+    # Optional per-track overrides of apply_criteria below (any key). A SWE-heavy profile
+    # scores lower on DS rubrics, so these bars are a bit lower; delete to use the global values.
+    # (A pay floor set here, e.g. min_base_pay: 180000, beats the global one but not --min-pay.)
     apply_criteria:
-      min_base_pay: 180000
       min_match: 72
       stretch_match: 62
 
@@ -210,31 +209,29 @@ smartrecruiters: [ServiceNow, LinkedIn3]
 # `rerank` skip them unless you pass --force.
 apply_criteria:
   max_posted_hours: 72          # posted within the last 72 hours
-  min_base_pay: 200000          # USD/year (top of the posted range must be above this)
+  # Optional filters, off by default. Turn them on here (or in a profile's config.yaml), or for
+  # one run with `--min-pay 200K` / `--perm` on any command (`--min-pay 0` / `--no-perm` turn off).
+  min_base_pay: 0               # USD/year; 0 = off. Otherwise the top of the posted range must be above it
   pay_basis: top                # top: range must reach above min_base_pay; bottom: whole range above it
-  include_unlisted_pay: false   # postings with no pay range can't be verified, so they're excluded
+  include_unlisted_pay: false   # with a pay floor on: postings with no pay range can't be verified, so they're excluded
   years_min: 2                  # the posting's required years must fall within 2..7
   years_max: 7
   include_unlisted_years: true  # many senior postings don't state years; keep them
   exclude_citizenship_required: true  # US citizenship / clearance / ITAR roles (needs visa support)
   exclude_no_sponsorship: true        # postings saying they won't / may not sponsor H-1B or other visas
-  exclude_recent_layoffs_months: 6    # companies with layoffs in this window (PERM-friendliness); 0 = off
+  exclude_recent_layoffs_months: 0    # PERM filter, 0 = off. N = exclude companies with layoffs in the last N months
   min_match: 75                 # "apply" tier: match % (Claude's score once re-ranked, else the rule score)
   stretch_match: 65             # "stretch" tier: 65-74% also qualifies, listed separately
 
-  # Companies that cap how often you can apply. above_match is strict (">"), and the cap counts
-  # submissions tracked here plus any dates you list under already_applied.
-  company_limits:
-    - company: OpenAI
-      max_applications: 6
-      window_days: 180
-      above_match: 85
-      already_applied: []       # e.g. [2026-07-14, 2026-08-02]
-    - company: Anthropic
-      max_applications: 6
-      window_days: 180
-      above_match: 85
-      already_applied: []
+  # Optional: companies that cap how often you can apply. None by default. Each entry needs a
+  # match above `above_match` (strict ">") and stops `apply` once `max_applications` is used up in
+  # `window_days`, counting submissions tracked here plus dates listed under already_applied.
+  company_limits: []
+  #  - company: OpenAI
+  #    max_applications: 6
+  #    window_days: 180
+  #    above_match: 85
+  #    already_applied: []       # e.g. [2026-07-14, 2026-08-02]
 
 # Where layoff data comes from: official California WARN notices (refreshed on every scrape),
 # plus Claude web research for companies with qualifying jobs. Your own entries and

@@ -1,15 +1,28 @@
 from __future__ import annotations
 
+import os
+import re
 from pathlib import Path
 
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT / "config" / "search.yaml"
-DATA_DIR = ROOT / "data"
-REPORTS_DIR = ROOT / "reports"
-RESUME_DIR = ROOT / "resume"
-OUTPUT_DIR = ROOT / "output"
+
+# Candidate profiles: `jsb --profile NAME ...` (or JSB_PROFILE=NAME) runs as another candidate.
+# Their resume, job database, outputs, dashboard, browser logins and blocklist all live in
+# profiles/NAME/, and profiles/NAME/config.yaml overrides config/search.yaml. Without a profile,
+# everything stays at the project root as before.
+PROFILE = os.environ.get("JSB_PROFILE") or None
+if PROFILE and not re.fullmatch(r"[A-Za-z0-9_-]+", PROFILE):
+    raise SystemExit(f"Profile names are letters, digits, - and _ only: {PROFILE!r}")
+HOME = ROOT / "profiles" / PROFILE if PROFILE else ROOT
+DATA_DIR = HOME / "data"
+REPORTS_DIR = HOME / "reports"
+RESUME_DIR = HOME / "resume"
+OUTPUT_DIR = HOME / "output"
+BROWSER_DIR = HOME / ".browser-profile"
+BLOCKLIST_PATH = HOME / ("blocked_companies.yaml" if PROFILE else "config/blocked_companies.yaml")
 
 RESUME_DEFAULTS = {"base": None, "max_pages": 1, "model": "sonnet", "cover_letter": False}
 
@@ -18,6 +31,8 @@ def load_config() -> dict:
     from .discover import load_discovered, merged_boards
 
     cfg = yaml.safe_load(CONFIG_PATH.read_text())
+    if PROFILE and (HOME / "config.yaml").exists():
+        cfg = _overlay(cfg, yaml.safe_load((HOME / "config.yaml").read_text()) or {})
     cfg["resume"] = {**RESUME_DEFAULTS, **(cfg.get("resume") or {})}
     cfg.setdefault("candidate", {})
     cfg = merged_boards(cfg)
@@ -28,7 +43,37 @@ def load_config() -> dict:
             if e.get("token"):
                 names.setdefault(e["token"], e["company"])
     _normalize_tracks(cfg)
+    cfg["cli_criteria"] = cli_criteria()
+    cfg["apply_criteria"] = {**cfg["apply_criteria"], **cfg["cli_criteria"]}
     return cfg
+
+
+def parse_pay(s: str) -> int:
+    """'200K', '$200k', '200000', '0' -> dollars."""
+    t = s.strip().lower().replace("$", "").replace(",", "")
+    try:
+        return int(float(t[:-1]) * 1000) if t.endswith("k") else int(float(t))
+    except ValueError:
+        raise SystemExit(f"--min-pay: expected something like 200K or 200000, got {s!r}")
+
+
+def cli_criteria() -> dict:
+    """Per-run filter flags (--min-pay, --perm, --no-perm), set by jsb/__main__.py. They beat
+    config/search.yaml, profile config and track overrides."""
+    out = {}
+    if os.environ.get("JSB_MIN_PAY") is not None:
+        out["min_base_pay"] = parse_pay(os.environ["JSB_MIN_PAY"])
+    if os.environ.get("JSB_PERM_MONTHS") is not None:
+        out["exclude_recent_layoffs_months"] = int(os.environ["JSB_PERM_MONTHS"])
+    return out
+
+
+def _overlay(base: dict, over: dict) -> dict:
+    """Profile overrides: nested dicts merge key by key, anything else replaces."""
+    out = dict(base)
+    for k, v in over.items():
+        out[k] = _overlay(base[k], v) if isinstance(v, dict) and isinstance(base.get(k), dict) else v
+    return out
 
 
 def _normalize_tracks(cfg: dict) -> None:
@@ -68,4 +113,4 @@ def track_target(cfg: dict, track: str | None, family: str | None = None) -> str
 def track_criteria(cfg: dict, track: str | None) -> dict:
     """apply_criteria with the track's own overrides (e.g. a different pay floor or match bar)."""
     over = (cfg.get("tracks", {}).get(track or "") or {}).get("apply_criteria") or {}
-    return {**cfg["apply_criteria"], **over}
+    return {**cfg["apply_criteria"], **over, **cfg.get("cli_criteria", {})}

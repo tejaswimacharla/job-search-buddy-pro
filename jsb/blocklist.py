@@ -6,9 +6,9 @@ from datetime import date
 
 import yaml
 
-from .config import ROOT
+from .config import BLOCKLIST_PATH
 
-PATH = ROOT / "config" / "blocked_companies.yaml"
+PATH = BLOCKLIST_PATH
 REASONS = ("manual-override", "no-sponsorship-h1b", "no-perm-support", "application-in-progress", "other")
 _SUFFIX = re.compile(r"\b(inc|llc|ltd|corp|corporation|co|company|technologies|labs|ai|hq)\b\.?", re.I)
 

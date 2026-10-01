@@ -32,7 +32,9 @@ def check(crit: dict, *, posted: str | None, compensation: str, description: str
         fails.append("older than %dh" % crit["max_posted_hours"] if h is not None else "post date unknown")
 
     rng = pay.parse(compensation, description)
-    if rng is None:
+    if not crit.get("min_base_pay"):   # pay floor off
+        pass
+    elif rng is None:
         if not crit.get("include_unlisted_pay"):
             fails.append("pay not listed")
     else:

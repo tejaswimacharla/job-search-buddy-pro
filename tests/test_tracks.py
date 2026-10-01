@@ -83,9 +83,21 @@ forced = m.score(Job(ats="test", company="Acme", ext_id="2", title="Quant Resear
                      location="NYC, NY", url="u", apply_url="u", description=ds_jd), force=True)
 checks.append((forced.passed and forced.track == "ds", f"hand-added unmatched title guesses ds (got {forced.track})"))
 dc = track_criteria(cfg, "ds")
-checks.append((dc["min_base_pay"] == 180000 and dc["max_posted_hours"] == cfg["apply_criteria"]["max_posted_hours"],
-               "ds criteria override pay and inherit the rest"))
-checks.append((track_criteria(cfg, "swe") == cfg["apply_criteria"], "swe criteria unchanged"))
+checks.append((dc["min_match"] == 72 and dc["max_posted_hours"] == cfg["apply_criteria"]["max_posted_hours"],
+               "ds criteria override the match bar and inherit the rest"))
+checks.append((not cfg["apply_criteria"]["min_base_pay"] and not cfg["apply_criteria"]["exclude_recent_layoffs_months"],
+               "pay floor and PERM filter are off by default"))
+import os  # noqa: E402
+from jsb.config import parse_pay  # noqa: E402
+os.environ.update(JSB_MIN_PAY="200K", JSB_PERM_MONTHS="6")
+flagged = load_config()
+os.environ.pop("JSB_MIN_PAY"); os.environ.pop("JSB_PERM_MONTHS")
+fc = track_criteria(dict(flagged, tracks={**flagged["tracks"], "ds": {**flagged["tracks"]["ds"],
+                                         "apply_criteria": {"min_base_pay": 150000}}}), "ds")
+checks.append((fc["min_base_pay"] == 200000 and fc["exclude_recent_layoffs_months"] == 6,
+               "--min-pay / --perm beat config and track overrides"))
+checks.append(([parse_pay(x) for x in ("200K", "$180k", "150000", "0")] == [200000, 180000, 150000, 0], "pay flag parsing"))
+checks.append((track_criteria(cfg, "swe") == cfg["apply_criteria"], "swe criteria are the global ones"))
 checks.append(("data scientist" in cfg["workday_queries"] and "software engineer" in cfg["workday_queries"],
                "workday queries cover both tracks"))
 de_jd = """Requirements

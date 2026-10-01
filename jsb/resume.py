@@ -55,8 +55,16 @@ def extract_text(path: Path) -> str:
     elif ext == ".docx":
         with zipfile.ZipFile(path) as z:
             xml = z.read("word/document.xml").decode("utf8")
+            rels_name = "word/_rels/document.xml.rels"
+            rels = z.read(rels_name).decode("utf8") if rels_name in z.namelist() else ""
+        import html
         paras = re.findall(r"<w:p[ >].*?</w:p>", xml, re.S)
-        text = "\n".join("".join(re.findall(r"<w:t[^>]*>([^<]*)</w:t>", p)) for p in paras)
+        # Tab stops and line breaks separate things like "Fairfax, VA<tab>May 2021".
+        runs = lambda p: re.findall(r"<w:t[^>]*>([^<]*)</w:t>|<w:(tab|br)/>", p)
+        text = "\n".join(html.unescape("".join(t or " " for t, _ in runs(p))) for p in paras)
+        links = dict.fromkeys(re.findall(r'Target="(https?://[^"]+)"[^>]*TargetMode="External"', rels))
+        if links:
+            text += "\n\nLinks in the document: " + " ".join(links)
     else:
         text = path.read_text()
     text = text.replace(" ", " ")
